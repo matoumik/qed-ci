@@ -27,6 +27,7 @@ import numpy as np
 from ctypes import *
 import os
 import psutil
+import FCIDUMP_writer
 
 script_dir = os.path.abspath(os.path.dirname(__file__))
 lib_path = os.path.join(script_dir, "cfunctions.so")
@@ -808,6 +809,120 @@ class PFHamiltonianGenerator:
         # build arrays in orbital basis from last step
         self.buildArraysInOrbitalBasis(psi4_wfn_o)
 
+        if(self.ci_level.upper() == "FCIDUMP"):
+
+            FCIDUMP_writer.make_FCIDUMP(self)
+            
+            """
+            print("Generating FCIDUMP FOR DMRG")
+            
+            # determine orbital range for the active space
+            if(self.n_act_orb == 0):
+                act_start = 0;
+                num_act = self.nmo
+                print("Full space dump")
+            else:
+                act_start = self.ndocc-self.n_act_el//2;
+                act_end = act_start+self.n_act_orb;
+                num_act = self.n_act_orb
+            
+            dip_two_el = np.tensordot(self.d_cmo,self.d_cmo,axes=0)
+
+            dip_dot = self.nuclear_dipole_moment[0]*self.lambda_vector[0] + self.nuclear_dipole_moment[1]*self.lambda_vector[1] + self.nuclear_dipole_moment[2]*self.lambda_vector[2] 
+            dip_one_el = self.q_mo + self.d_cmo*dip_dot
+
+            #ints_two_el  = self.eri_dump
+            #ints_two_el += dip_two_el
+
+            ints_one_el  = self.T_p_V_mo + dip_one_el
+
+
+
+            dump = open("DMRGDUMP", "w")
+            
+            dump.write(f' # Printing electron repulsion integrals in spatial MO basis\n')
+            for i in range(num_act):
+                for j in range(0,i+1):
+                    for k in range(num_act):
+                        for l in range(0,k+1):
+                            teint = self.eri_dump[act_start+i,act_start+j,act_start+k,act_start+l]
+                            #teint = self.ints_two_el[act_start+i,act_start+j,act_start+k,act_start+l]
+                            if np.abs(teint)>0.0:
+                                dump.write(f'  {teint:30.20e} \t {i+1} {j+1} {k+1} {l+1}\n')
+
+            dump.write(f' # Printing T + V integrals in spatial MO basis\n')
+            
+
+            for i in range(num_act):
+                for j in range(num_act):
+                    #oeint = self.T_p_V_mo[act_start+i,act_start+j]
+                    oeint = ints_one_el[act_start+i,act_start+j]
+                    for o in range(act_start):
+                        oeint+=2*self.eri_dump[o,o,act_start+i,act_start+j]
+                        oeint-=self.eri_dump[o,act_start+i,o,act_start+j]
+                        oeint+=2*dip_two_el[o,o,act_start+i,act_start+j]
+                        oeint-=dip_two_el[o,act_start+i,o,act_start+j]
+                    dump.write(f'  {oeint:30.20e} \t {i+1} {j+1} {0} {0}\n')
+
+            dump.write(f' # Printing -1/2 \lambda \lambda q integrals in spatial MO basis\n')
+            for i in range(num_act):
+                for j in range(num_act):
+                    oeint = self.q_mo[act_start+i,act_start+j]
+                    dump.write(f'  {oeint:30.20e} \t {i+1} {j+1} {0} {0}\n')
+
+            dump.write(f' # Printing \lambda mu integrals in spatial MO basis\n')
+            for i in range(num_act):
+                for j in range(num_act):
+                    oeint = self.d_cmo[act_start+i,act_start+j]
+                    dump.write(f'  {oeint:30.20e} \t {i+1} {j+1} {0} {0}\n')
+
+            dump.write(f' # Printing nuclear repulsion energy\n')
+            
+            Enuc = 0
+            Enuc += self.Enuc
+            Enuc += 0.5*dip_dot*dip_dot 
+            for o in range(act_start):
+                Enuc += 2*self.T_p_V_mo[o,o]
+                Enuc += 2*dip_one_el[o,o]
+                Enuc += self.eri_dump[o,o,o,o]
+                Enuc += dip_two_el[o,o,o,o]
+                for p in range(o):
+                    Enuc+=4*self.eri_dump[o,o,p,p]
+                    Enuc-=2*self.eri_dump[o,p,o,p]
+                    Enuc+=4*dip_two_el[o,o,p,p]
+                    Enuc-=2*dip_two_el[o,p,o,p]
+            dump.write(f'  {Enuc:30.20e} \t {0} {0} {0} {0}\n')
+
+            dump.write(f' # Printing photon energy\n')
+            dump.write(f'  {self.omega:30.20e} \t {0} {0} {0} {0}\n')
+            
+            dump.write(f' # Printing lambda vector\n')
+            :dump.write(f'  {self.lambda_vector[0]:16.10e}, {self.lambda_vector[1]:16.10e}, {self.lambda_vector[2]:16.10e} \t {0} {0} {0} {0}\n')
+            
+            dump.write(f' # Printing RHF Electronic Dipole Moment\n')
+            dump.write(f'  {self.electronic_dipole_moment[0]:16.10e}, {self.electronic_dipole_moment[1]:16.10e}, {self.electronic_dipole_moment[2]:16.10e} \t {0} {0} {0} {0}\n')
+
+            
+            dump.write(f' # Printing Nuclear Dipole Moment\n')
+            
+            Dnuc = 0
+            for o in range(act_start):
+                #Dnuc += 2*self.q_mo[o,o]
+                Dnuc += 2*self.d_cmo[o,o]
+            
+            lambda_norm = self.lambda_vector[0]*self.lambda_vector[0] + self.lambda_vector[1]*self.lambda_vector[1] + self.lambda_vector[2]*self.lambda_vector[2]
+            #lambda_norm = math.sqrt(lambda_norm)
+            #lambda_norm = 0;
+            if(lambda_norm>1e-12):
+                Dnuc_vec = [self.nuclear_dipole_moment[0] + Dnuc * self.lambda_vector[0]/lambda_norm, self.nuclear_dipole_moment[1] + Dnuc * self.lambda_vector[1]/lambda_norm, self.nuclear_dipole_moment[2] + Dnuc * self.lambda_vector[2]/lambda_norm ]
+            else:
+                Dnuc_vec = [self.nuclear_dipole_moment[0], self.nuclear_dipole_moment[1], self.nuclear_dipole_moment[2]] 
+
+            dump.write(f'  {Dnuc_vec[0]:16.10e}, {Dnuc_vec[1]:16.10e}, {Dnuc_vec[2]:16.10e} \t {0} {0} {0} {0}\n')
+            """
+
+            return 
+        
         t_det_start = time.time()
         np1 = self.N_p + 1
 
@@ -1060,7 +1175,7 @@ class PFHamiltonianGenerator:
 
                     alphalist = Determinant.obtBits2ObtIndexList(a0)
                     betalist = Determinant.obtBits2ObtIndexList(b0)
-                    for j in range(min(H_dim,10)):
+                    for j in range(min(H_dim,20)):
                         Idet = index[eigenvecs.shape[1]-j-1]%self.num_det
                         photon_p = (index[eigenvecs.shape[1]-j-1]-Idet)//self.num_det
                         Ib= Idet%self.num_alpha
@@ -1155,7 +1270,7 @@ class PFHamiltonianGenerator:
 
 
 
-
+            """
             t_dav_end = time.time()
             print(f" Completed Davidson iterations in {t_dav_end - t_H_build} seconds")
 
@@ -1206,6 +1321,7 @@ class PFHamiltonianGenerator:
 
             print(f' # Printing FCI Ground-state Energy')
             print(f'  {self.CIeigs[0]:30.20e} \t {0} {0} {0} {0}')
+            """
 
 
     def parseCavityOptions(self, cavity_dictionary):
@@ -1325,7 +1441,7 @@ class PFHamiltonianGenerator:
             self.davidson_maxiter = 100
 
         # only need nact and nels if ci_level == "CAS"
-        if self.ci_level == "cas" or self.ci_level == "CAS":
+        if self.ci_level == "cas" or self.ci_level == "CAS" or self.ci_level == "FCIDUMP" or self.ci_level == "fcidump":
             if "nact_orbs" in cavity_dictionary:
                 self.n_act_orb = cavity_dictionary["nact_orbs"]
             else:
@@ -1338,6 +1454,12 @@ class PFHamiltonianGenerator:
         else:
             self.n_act_orb = 0
             self.n_act_el = 0
+            
+        if "localize_active" in cavity_dictionary:
+            self.localize_active = cavity_dictionary["localize_active"]
+        else:
+            self.localize_active = False
+            
 
     def parseArrays(self, cqed_rhf_dict):
         # grab quantities from cqed_rhf_dict that apply to both number state and coherent state bases
@@ -1382,6 +1504,9 @@ class PFHamiltonianGenerator:
         # update wfn object
         wfn = psi4.core.Wavefunction.from_file(wfn_dict)
 
+        # -Mik to visualize molden orbitals before orbital swapping and localization
+        psi4.driver.molden(wfn, "orbitals_original.molden", dovirtual=True)
+
         # Grab data from wavfunction class
         self.Ca = wfn.Ca()
         size_order = len(self.manual_ordering)
@@ -1400,7 +1525,72 @@ class PFHamiltonianGenerator:
 
             # Grab data from wavfunction class
             self.Ca = wfn.Ca()
+            # -Mik one el things would not be reordered
+            self.C = np.asarray(self.Ca)		
+            # -Mik dipole needs to be reordered too
+            self.d_cmo = np.dot(self.C.T, self.d_ao).dot(self.C)
+                      
+        
+        self.ndocc = wfn.doccpi()[0]
+        self.nmo = wfn.nmo()
+        self.nso = 2 * self.nmo
+        self.nvirt = self.nmo - self.ndocc
 
+        if(self.localize_active):            
+            ndocc = self.ndocc
+	    
+	    # determine orbital range for the active space
+            if(self.n_act_orb == 0):
+                act_start = 0;
+                num_act = self.nmo
+                act_end = num_act
+                print("Localizing full orbital space")
+            else:
+                act_start = self.ndocc-self.n_act_el//2;
+                act_end = act_start+self.n_act_orb;
+                num_act = self.n_act_orb
+                print("Localizing active space")
+	    
+           
+            C_temp = np.asarray(wfn.Ca()).copy()
+            
+            C_act_occ = psi4.core.Matrix.from_array(C_temp[:,act_start:ndocc])
+            basis_ = wfn.basisset()
+	    
+            Local = psi4.core.Localizer.build("PIPEK_MEZEY", basis_, C_act_occ) # Pipek-Mezey Localization
+            Local.localize()
+            C_temp[:,act_start:ndocc] = np.asarray(Local.L) # local C_occ coefficients
+            
+            
+            
+            
+            C_act_virt = psi4.core.Matrix.from_array(C_temp[:,ndocc:act_end])
+	    
+            Local = psi4.core.Localizer.build("PIPEK_MEZEY", basis_, C_act_virt) # Pipek-Mezey Localization
+            Local.localize()
+            C_temp[:,ndocc:act_end] =  np.asarray(Local.L) # local C_occ coefficients
+            
+            	
+	    # update wfn_dict with reordered orbitals 
+            wfn_dict["matrix"]["Ca"] = C_temp
+            wfn_dict["matrix"]["Cb"] = C_temp
+
+            # update wfn object
+            wfn = psi4.core.Wavefunction.from_file(wfn_dict)
+            
+            
+            # Grab data from wavfunction class
+            self.Ca = wfn.Ca()
+            # -Mik one el things would not be localized
+            self.C = np.asarray(self.Ca)
+            # -Mik dipole needs to be localized too
+            self.d_cmo = np.dot(self.C.T, self.d_ao).dot(self.C)
+
+	
+
+        # -Mik to visualize molden orbitals
+        psi4.driver.molden(wfn, "orbitals.molden", dovirtual=True)
+        
         
         self.ndocc = wfn.doccpi()[0]
         self.nmo = wfn.nmo()
