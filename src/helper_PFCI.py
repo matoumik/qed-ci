@@ -39,6 +39,7 @@ from scipy.sparse.linalg import minres
 from scipy.sparse.linalg import LinearOperator
 from timeit import default_timer as timer
 import numba as nb
+import FCIDUMP_writer as dmrg
 script_dir = os.path.abspath(os.path.dirname(__file__))
 lib_path = os.path.join(script_dir, "cfunctions.so")
 
@@ -1354,7 +1355,13 @@ class PFHamiltonianGenerator:
             self.H_diag = np.zeros((H_dim))
 
         # cas - can do full diagonalization of direct
-        elif self.ci_level == "cas":
+        elif self.ci_level.lower() == "cas" or self.ci_level.lower() == "dmrg":
+
+            self.diag = True
+                
+            if self.ci_level.lower() == "dmrg":
+                self.diag = False
+
             if self.test_mode:
                 # Build all QED-CAS determinants
                 self.generateCASCIDeterminants()
@@ -1369,19 +1376,26 @@ class PFHamiltonianGenerator:
 
             # direct is default
             else:
+
                 # build determinant tables but not all determinants
                 self.n_act_a = self.n_act_el // 2  # number of active alpha electrons
                 self.n_in_a = (
                     self.ndocc - self.n_act_a
                 )  # number of inactive alpha electrons
                 self.n_occupied = self.n_act_orb + self.n_in_a
-                self.num_alpha = math.comb(
-                    self.n_act_orb, self.n_act_a
-                )  # number of alpha strings
-                self.num_det = self.num_alpha * self.num_alpha  # number of determinants
-                self.CASnumDets = self.num_det
-                H_dim = self.CASnumDets * np1
-                self.H_diag = np.zeros(H_dim)
+
+                
+                #Preliminaries not needed for DMRG
+                if(self.diag):
+                    self.num_alpha = math.comb(
+                        self.n_act_orb, self.n_act_a
+                    )  # number of alpha strings
+                    self.num_det = self.num_alpha * self.num_alpha  # number of determinants
+                    self.CASnumDets = self.num_det
+                    H_dim = self.CASnumDets * np1
+                    self.H_diag = np.zeros(H_dim)
+                
+            
                 self.H1temp = copy.deepcopy(self.H_spatial2)
                 self.d_cmo_temp = copy.deepcopy(self.d_cmo)
                 self.build_JK()
@@ -1458,118 +1472,183 @@ class PFHamiltonianGenerator:
                     "jj->", self.fock_core[: self.n_in_a, : self.n_in_a]
                 )
 
-                self.table = np.zeros(
-                    self.num_alpha
-                    * (self.n_act_a * (self.n_act_orb - self.n_act_a) + self.n_act_a)
-                    * 4,
-                    dtype=np.int32,
-                )
-                num_links1 = self.n_act_orb - self.n_act_a + 1
-                rows1 = math.comb(self.n_act_orb, self.n_act_a - 1) * num_links1
-                self.table_creation = np.zeros(rows1 * 3, dtype=np.int32)
-                num_links2 = self.n_act_a
-                rows2 = self.num_alpha * num_links2
-                self.table_annihilation = np.zeros(rows2 * 3, dtype=np.int32)
 
-                self.b_array = np.zeros(
-                    self.num_alpha * self.n_act_orb * self.n_act_orb * 2, dtype=np.int32
-                )
-                self.Y = np.zeros(
-                    self.n_act_a * (self.n_act_orb - self.n_act_a + 1) * 3,
-                    dtype=np.int32,
-                )
-                c_graph(self.n_act_a, self.n_act_orb, self.Y)
+                if(self.diag):
+                    self.table = np.zeros(
+                        self.num_alpha
+                        * (self.n_act_a * (self.n_act_orb - self.n_act_a) + self.n_act_a)
+                        * 4,
+                        dtype=np.int32,
+                    )
+                    num_links1 = self.n_act_orb - self.n_act_a + 1
+                    rows1 = math.comb(self.n_act_orb, self.n_act_a - 1) * num_links1
+                    self.table_creation = np.zeros(rows1 * 3, dtype=np.int32)
+                    num_links2 = self.n_act_a
+                    rows2 = self.num_alpha * num_links2
+                    self.table_annihilation = np.zeros(rows2 * 3, dtype=np.int32)
 
-                # self.H_diag3 = np.zeros(H_dim)
-                # c_H_diag_cas(
-                #        self.occupied_fock_core,
-                #        self.occupied_J3,
-                #        self.H_diag3,
-                #        self.N_p,
-                #        self.num_alpha,
-                #        self.nmo,
-                #        self.n_act_a,
-                #        self.n_act_orb,
-                #        self.n_in_a,
-                #        self.E_core,
-                #        self.omega,
-                #        self.Enuc,
-                #        self.d_c,
-                #        self.Y)
-                # print(self.H_diag3)
+                    self.b_array = np.zeros(
+                        self.num_alpha * self.n_act_orb * self.n_act_orb * 2, dtype=np.int32
+                    )
+                    self.Y = np.zeros(
+                        self.n_act_a * (self.n_act_orb - self.n_act_a + 1) * 3,
+                        dtype=np.int32,
+                    )
+                    c_graph(self.n_act_a, self.n_act_orb, self.Y)
 
-                # self.target_spin = 0.0
-                self.H_diag3 = np.zeros(H_dim)
-                c_H_diag_cas_spin(
-                    self.occupied_fock_core,
-                    self.occupied_J3,
-                    self.H_diag3,
-                    self.N_p,
-                    self.num_alpha,
-                    self.nmo,
-                    self.n_act_a,
-                    self.n_act_orb,
-                    self.n_in_a,
-                    self.E_core,
-                    self.omega,
-                    self.Enuc,
-                    self.d_c,
-                    self.Y,
-                    self.target_spin,
-                )
-                # print(self.H_diag3, flush = True)
-                self.index_Hdiag = np.asarray(self.H_diag3.argsort(), dtype=np.int32)
-                # np.savetxt("H_diag.out", self.H_diag3)
-                # print(np.sort(self.H_diag3))
-                c_string(
-                    self.occupied_fock_core,
-                    self.occupied_J3,
-                    self.H_diag,
-                    self.b_array,
-                    self.table,
-                    self.table_creation,
-                    self.table_annihilation,
-                    self.N_p,
-                    self.num_alpha,
-                    self.nmo,
-                    self.n_act_a,
-                    self.n_act_orb,
-                    self.n_in_a,
-                    self.E_core,
-                    self.omega,
-                    self.Enuc,
-                    self.d_c,
-                    self.target_spin,
-                )
-                # print(self.H_diag, flush = True)
-                # print(self.H_diag - self.H_diag3, flush = True)
-                self.S_diag = np.zeros(H_dim)
-                shift = 0.0
-                c_s_diag(
-                    self.S_diag,
-                    self.num_alpha,
-                    self.nmo,
-                    self.n_act_a,
-                    self.n_act_orb,
-                    self.n_in_a,
-                    shift,
-                )
-                self.S_diag_projection = np.zeros(H_dim)
-                shift = self.target_spin * (self.target_spin + 1)
-                c_s_diag(
-                    self.S_diag_projection,
-                    self.num_alpha,
-                    self.nmo,
-                    self.n_act_a,
-                    self.n_act_orb,
-                    self.n_in_a,
-                    shift,
-                )
-                num_alpha1 = math.comb(self.n_act_orb, self.n_act_a - 1)
-                print(
-                    "mem_D+T",
-                    self.num_alpha * num_alpha1 * self.n_act_orb * 8 * 2 / 1024 / 1024,
-                )  # intermediate in sigma3
+                    # self.H_diag3 = np.zeros(H_dim)
+                    # c_H_diag_cas(
+                    #        self.occupied_fock_core,
+                    #        self.occupied_J3,
+                    #        self.H_diag3,
+                    #        self.N_p,
+                    #        self.num_alpha,
+                    #        self.nmo,
+                    #        self.n_act_a,
+                    #        self.n_act_orb,
+                    #        self.n_in_a,
+                    #        self.E_core,
+                    #        self.omega,
+                    #        self.Enuc,
+                    #        self.d_c,
+                    #        self.Y)
+                    # print(self.H_diag3)
+
+                    # self.target_spin = 0.0
+                    self.H_diag3 = np.zeros(H_dim)
+                    c_H_diag_cas_spin(
+                        self.occupied_fock_core,
+                        self.occupied_J3,
+                        self.H_diag3,
+                        self.N_p,
+                        self.num_alpha,
+                        self.nmo,
+                        self.n_act_a,
+                        self.n_act_orb,
+                        self.n_in_a,
+                        self.E_core,
+                        self.omega,
+                        self.Enuc,
+                        self.d_c,
+                        self.Y,
+                        self.target_spin,
+                    )
+                    # print(self.H_diag3, flush = True)
+                    self.index_Hdiag = np.asarray(self.H_diag3.argsort(), dtype=np.int32)
+                    # np.savetxt("H_diag.out", self.H_diag3)
+                    # print(np.sort(self.H_diag3))
+                    c_string(
+                        self.occupied_fock_core,
+                        self.occupied_J3,
+                        self.H_diag,
+                        self.b_array,
+                        self.table,
+                        self.table_creation,
+                        self.table_annihilation,
+                        self.N_p,
+                        self.num_alpha,
+                        self.nmo,
+                        self.n_act_a,
+                        self.n_act_orb,
+                        self.n_in_a,
+                        self.E_core,
+                        self.omega,
+                        self.Enuc,
+                        self.d_c,
+                        self.target_spin,
+                    )
+                    # print(self.H_diag, flush = True)
+                    # print(self.H_diag - self.H_diag3, flush = True)
+                    self.S_diag = np.zeros(H_dim)
+                    shift = 0.0
+                    c_s_diag(
+                        self.S_diag,
+                        self.num_alpha,
+                        self.nmo,
+                        self.n_act_a,
+                        self.n_act_orb,
+                        self.n_in_a,
+                        shift,
+                    )
+                    self.S_diag_projection = np.zeros(H_dim)
+                    shift = self.target_spin * (self.target_spin + 1)
+                    c_s_diag(
+                        self.S_diag_projection,
+                        self.num_alpha,
+                        self.nmo,
+                        self.n_act_a,
+                        self.n_act_orb,
+                        self.n_in_a,
+                        shift,
+                    )
+                
+                    num_alpha1 = math.comb(self.n_act_orb, self.n_act_a - 1)
+                    print(
+                        "mem_D+T",
+                        self.num_alpha * num_alpha1 * self.n_act_orb * 8 * 2 / 1024 / 1024,
+                    )  # intermediate in sigma3
+                
+                else: #DMRG #FCIDUMP
+                    #DEBUG EXIT
+
+                    
+
+                    self.num_dmrg_runs = 0
+
+                    core_int  = -2*np.sqrt(self.omega / 2)*np.einsum("jj->", self.d_cmo[: self.n_in_a, : self.n_in_a])
+                    core_int +=  np.sqrt(self.omega / 2)*self.d_exp
+
+                    #one_el =  self.occupied_h1[self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied]
+                    #one_el += 2*np.einsum("jjrs->rs", self.J[: self.n_in_a, : self.n_in_a, self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied])
+                    #one_el -=    np.einsum("jjrs->rs", self.K[: self.n_in_a, : self.n_in_a, self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied])
+
+                    dmrg.make_FCIDUMP_CASSCF(self.n_act_orb, 
+                                             self.J[self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied], 
+                                             self.fock_core[ self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied],                                                             
+                                             self.E_core+self.Enuc+self.d_c, 
+                                             self.omega, 
+                                             core_int,
+                                             -np.sqrt(self.omega / 2)*self.d_cmo[self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied] )
+                    
+
+                    
+                    if(self.ci_level.lower() == "fcidump"):
+                        print("FCIDUMP files written, exiting...")
+                        return
+                    
+                    else:
+                        dmrg.run_dmrg()
+                        self.num_dmrg_runs += 1
+                        
+                        print("DMRG completed, reading results.")
+                        energy, rdm1, rdm2, rdm_pe, rdm_n, rdm_b = dmrg.read_dmrg_results()
+                        print("DMRG Energies:")
+                        for E in energy:
+                            print("\t", E)
+
+                        rdm_energies = list()
+                        for i in range(len(energy)):
+                            #E = self.rdm_exact_energy_DMRG(self.J, self.K, self.H_spatial2, self.d_cmo, rdm1[i], rdm2[i], rdm_pe[i], rdm_n[i], rdm_b[i])
+                            E = self.rdm_exact_energy_DMRG2(self.J[self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied], 
+                                                            self.fock_core[ self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied], 
+                                                            self.d_cmo,
+                                                            self.E_core+self.Enuc+self.d_c, 
+                                                            rdm1[i], rdm2[i], rdm_pe[i], rdm_n[i], rdm_b[i])
+                            #print("E = ", E, " E2 = ", E2, " Diff = ", E - E2  )
+                            rdm_energies.append(E)
+
+                        print("DMRG RDM Energies:")
+                        for E, E_ref in zip(rdm_energies, energy):
+                            print("\t", E , " (ref: ", E_ref, "diff: ", E - E_ref, ")")
+
+                        if(len(energy) >= self.davidson_roots):
+                            eigenvals = energy[:self.davidson_roots]
+
+                        else:
+                            print("Not enough DMRG roots found!!! Going to use all I have (", len(energy),") -> Consider changing the MOLMPS input.")
+                            self.davidson_roots = len(energy)
+
+
 
         # fci - can do full diagonalization or direct
         elif self.ci_level == "fci":
@@ -1769,10 +1848,17 @@ class PFHamiltonianGenerator:
                 )  # size of intermediate in sigma3
 
         t_det_end = time.time()
-        print(
-            f" Completed determinant list in {t_det_end - t_det_start} seconds ",
-            flush=True,
-        )
+
+        if self.diag:       
+            print(
+                f" Completed determinant list in {t_det_end - t_det_start} seconds ",
+                flush=True,
+            )
+        elif self.ci_level.lower() == "dmrg":
+            print(
+                f" Completed DMRG run in {t_det_end - t_det_start} seconds ",
+                flush=True,
+            )
 
         # if doing full-diagonalization, next step will be to build full Hamiltonian matrix
         if self.ci_level == "cis":
@@ -1826,197 +1912,202 @@ class PFHamiltonianGenerator:
             # call full diagonalization
             self.CIeigs, self.CIvecs = np.linalg.eigh(self.H_PF)
 
-        if self.full_diagonalization:
+        if self.diag and self.full_diagonalization:
             # call full diagonalization
             self.CIeigs, self.CIvecs = np.linalg.eigh(self.H_PF)
 
         # if doing direct method, call Davidson routine
         else:
-            indim = self.davidson_indim * self.davidson_roots
-            maxdim = self.davidson_maxdim * self.davidson_roots
-            # print(H_dim, self.n_act_a,self.nmo)
-            if indim > H_dim or maxdim > H_dim:
+            if self.diag:
+                indim = self.davidson_indim * self.davidson_roots
+                maxdim = self.davidson_maxdim * self.davidson_roots
+                # print(H_dim, self.n_act_a,self.nmo)
+                if indim > H_dim or maxdim > H_dim:
+                    print(
+                        "subspace size is too large, try to set maxdim and indim <",
+                        H_dim // self.davidson_roots,
+                    )
+                    sys.exit()
+                t_H_build = time.time()
                 print(
-                    "subspace size is too large, try to set maxdim and indim <",
-                    H_dim // self.davidson_roots,
-                )
-                sys.exit()
-            t_H_build = time.time()
-            print(
-                "memory required for sigma and CI vectors",
-                maxdim * H_dim * 8 * 2 / 1024 / 1024,
-                flush=True,
-            )
-
-            print(psutil.Process().memory_info().rss / (1024 * 1024))
-            if self.ci_level == "cas" or self.ci_level == "fci":
-                sys.stderr.flush()
-                d_diag = 0.0
-                for i in range(self.n_in_a):
-                    d_diag += 2.0 * self.occupied_d_cmo[i][i]
-                # print(d_diag, self.d_exp, self.N_p, self.n_act_orb, self.nmo, self.omega, self.num_alpha)
-                self.constint = np.zeros(9, dtype=np.int32)
-                self.constint[0] = self.n_act_a
-                self.constint[1] = self.n_act_orb
-                self.constint[2] = self.n_in_a
-                self.constint[3] = self.nmo
-                self.constint[4] = self.N_p
-                self.constint[5] = indim
-                self.constint[6] = maxdim
-                self.constint[7] = self.davidson_roots
-                self.constint[8] = self.davidson_maxiter
-                self.constdouble = np.zeros(6)
-                self.constdouble[0] = self.Enuc
-                if self.ignore_dse_terms:
-                    self.constdouble[1] = 0.0
-                else:
-                    self.constdouble[1] = self.d_c
-                self.constdouble[2] = self.omega
-                self.constdouble[3] = self.d_exp - d_diag
-                self.constdouble[4] = self.davidson_threshold
-                self.constdouble[5] = self.E_core
-                eigenvals = np.zeros((self.davidson_roots))
-                eigenvecs = np.zeros((self.davidson_roots, H_dim))
-                # dres = self.Davidson(self.H_PF, self.davidson_roots, self.davidson_threshold, indim, maxdim,self.davidson_maxiter,self.build_sigma,self.H_diag)
-                c_get_roots(
-                    self.gkl2,
-                    self.occupied_J3,
-                    self.occupied_d_cmo,
-                    self.H_diag,
-                    self.S_diag,
-                    self.S_diag_projection,
-                    eigenvals,
-                    eigenvecs,
-                    self.table,
-                    self.table_creation,
-                    self.table_annihilation,
-                    self.b_array,
-                    self.constint,
-                    self.constdouble,
-                    self.index_Hdiag,
-                    False,
-                    self.target_spin,
-                )
-
-                self.CIeigs = eigenvals
-                self.CIvecs = eigenvecs
-
-                print(
-                    "\nACTIVE PART OF DETERMINANTS THAT HAVE THE MOST IMPORTANT CONTRIBUTIONS",
+                    "memory required for sigma and CI vectors",
+                    maxdim * H_dim * 8 * 2 / 1024 / 1024,
                     flush=True,
                 )
-                Y = np.zeros(
-                    self.n_act_a * (self.n_act_orb - self.n_act_a + 1) * 3,
-                    dtype=np.int32,
-                )
-                c_graph(self.n_act_a, self.n_act_orb, Y)
-                np1 = self.N_p + 1
-                singlet_count = 0
-                triplet_count = 0
-                for i in range(eigenvecs.shape[0]):
-                    total_spin = self.check_total_spin(eigenvecs[i : (i + 1), :])
-                    print(
-                        "state",
-                        i,
-                        "energy =",
-                        eigenvals[i],
-                        "<S^2>=",
-                        total_spin,
-                        end="",
+
+                print(psutil.Process().memory_info().rss / (1024 * 1024))
+
+
+            if self.ci_level == "cas" or self.ci_level == "fci" or self.ci_level.lower() == "dmrg":
+
+                if self.diag:
+                    sys.stderr.flush()
+                    d_diag = 0.0
+                    for i in range(self.n_in_a):
+                        d_diag += 2.0 * self.occupied_d_cmo[i][i]
+                    # print(d_diag, self.d_exp, self.N_p, self.n_act_orb, self.nmo, self.omega, self.num_alpha)
+                    self.constint = np.zeros(9, dtype=np.int32)
+                    self.constint[0] = self.n_act_a
+                    self.constint[1] = self.n_act_orb
+                    self.constint[2] = self.n_in_a
+                    self.constint[3] = self.nmo
+                    self.constint[4] = self.N_p
+                    self.constint[5] = indim
+                    self.constint[6] = maxdim
+                    self.constint[7] = self.davidson_roots
+                    self.constint[8] = self.davidson_maxiter
+                    self.constdouble = np.zeros(6)
+                    self.constdouble[0] = self.Enuc
+                    if self.ignore_dse_terms:
+                        self.constdouble[1] = 0.0
+                    else:
+                        self.constdouble[1] = self.d_c
+                    self.constdouble[2] = self.omega
+                    self.constdouble[3] = self.d_exp - d_diag
+                    self.constdouble[4] = self.davidson_threshold
+                    self.constdouble[5] = self.E_core
+                    eigenvals = np.zeros((self.davidson_roots))
+                    eigenvecs = np.zeros((self.davidson_roots, H_dim))
+                    # dres = self.Davidson(self.H_PF, self.davidson_roots, self.davidson_threshold, indim, maxdim,self.davidson_maxiter,self.build_sigma,self.H_diag)
+                    c_get_roots(
+                        self.gkl2,
+                        self.occupied_J3,
+                        self.occupied_d_cmo,
+                        self.H_diag,
+                        self.S_diag,
+                        self.S_diag_projection,
+                        eigenvals,
+                        eigenvecs,
+                        self.table,
+                        self.table_creation,
+                        self.table_annihilation,
+                        self.b_array,
+                        self.constint,
+                        self.constdouble,
+                        self.index_Hdiag,
+                        False,
+                        self.target_spin,
                     )
-                    if np.abs(total_spin) < 1e-5:
-                        singlet_count += 1
-                        print("\tsinglet", singlet_count)
-                    elif np.abs(total_spin - 2.0) < 1e-5:
-                        triplet_count += 1
-                        print("\ttriplet", triplet_count)
-                    elif np.abs(total_spin - 6.0) < 1e-5:
-                        print("\tquintet")
 
-                    # print("state",i, "energy =",theta[i])
+                    self.CIeigs = eigenvals
+                    self.CIvecs = eigenvecs
+
                     print(
-                        "        amplitude",
-                        "      position",
-                        "         most important determinants",
-                        "             number of photon",
+                        "\nACTIVE PART OF DETERMINANTS THAT HAVE THE MOST IMPORTANT CONTRIBUTIONS",
+                        flush=True,
                     )
-                    index = np.argsort(np.abs(eigenvecs[i, :]))
-                    # print(index)
-                    Idet0 = (
-                        index[eigenvecs.shape[1] - 1] % self.num_det
-                    )  # determinant index of most significant contribution
-                    photon_p0 = (
-                        index[eigenvecs.shape[1] - 1] - Idet0
-                    ) // self.num_det  # photon number block of determinant
-                    Ib0 = Idet0 % self.num_alpha
-                    Ia0 = Idet0 // self.num_alpha
-                    a0 = c_index_to_string(Ia0, self.n_act_a, self.n_act_orb, Y)
-                    b0 = c_index_to_string(Ib0, self.n_act_a, self.n_act_orb, Y)
+                    Y = np.zeros(
+                        self.n_act_a * (self.n_act_orb - self.n_act_a + 1) * 3,
+                        dtype=np.int32,
+                    )
+                    c_graph(self.n_act_a, self.n_act_orb, Y)
+                    np1 = self.N_p + 1
+                    singlet_count = 0
+                    triplet_count = 0
+                    for i in range(eigenvecs.shape[0]):
+                        total_spin = self.check_total_spin(eigenvecs[i : (i + 1), :])
+                        print(
+                            "state",
+                            i,
+                            "energy =",
+                            eigenvals[i],
+                            "<S^2>=",
+                            total_spin,
+                            end="",
+                        )
+                        if np.abs(total_spin) < 1e-5:
+                            singlet_count += 1
+                            print("\tsinglet", singlet_count)
+                        elif np.abs(total_spin - 2.0) < 1e-5:
+                            triplet_count += 1
+                            print("\ttriplet", triplet_count)
+                        elif np.abs(total_spin - 6.0) < 1e-5:
+                            print("\tquintet")
 
-                    alphalist = Determinant.obtBits2ObtIndexList(a0)
-                    betalist = Determinant.obtBits2ObtIndexList(b0)
+                        # print("state",i, "energy =",theta[i])
+                        print(
+                            "        amplitude",
+                            "      position",
+                            "         most important determinants",
+                            "             number of photon",
+                        )
+                        index = np.argsort(np.abs(eigenvecs[i, :]))
+                        # print(index)
+                        Idet0 = (
+                            index[eigenvecs.shape[1] - 1] % self.num_det
+                        )  # determinant index of most significant contribution
+                        photon_p0 = (
+                            index[eigenvecs.shape[1] - 1] - Idet0
+                        ) // self.num_det  # photon number block of determinant
+                        Ib0 = Idet0 % self.num_alpha
+                        Ia0 = Idet0 // self.num_alpha
+                        a0 = c_index_to_string(Ia0, self.n_act_a, self.n_act_orb, Y)
+                        b0 = c_index_to_string(Ib0, self.n_act_a, self.n_act_orb, Y)
 
-                    excitation_rank = 0
+                        alphalist = Determinant.obtBits2ObtIndexList(a0)
+                        betalist = Determinant.obtBits2ObtIndexList(b0)
 
-                    # count the ground state only for now!
-                    if i==0:
-                        a_ref = np.array(alphalist)
-                        b_ref = np.array(betalist)
-                    
-                    #for j in range(min(H_dim, 10)):
-                    for j in range(H_dim):
-                        Idet = index[eigenvecs.shape[1] - j - 1] % self.num_det
-                        photon_p = (
-                            index[eigenvecs.shape[1] - j - 1] - Idet
-                        ) // self.num_det
-                        Ib = Idet % self.num_alpha
-                        Ia = Idet // self.num_alpha
-                        a = c_index_to_string(Ia, self.n_act_a, self.n_act_orb, Y)
-                        b = c_index_to_string(Ib, self.n_act_a, self.n_act_orb, Y)
+                        excitation_rank = 0
 
-                        alphalist = Determinant.obtBits2ObtIndexList(a)
-                        betalist = Determinant.obtBits2ObtIndexList(b)
-
-                        c_i = eigenvecs[i][index[eigenvecs.shape[1] - j - 1]]
-
+                        # count the ground state only for now!
                         if i==0:
-                            a_curr = np.array(alphalist)
-                            b_curr = np.array(betalist)
-                            
-                            a_diff_count = np.sum(a_ref != a_curr)
-                            b_diff_count = np.sum(b_ref != b_curr)
-                            
-                            # sum of alpha and beta difference instances is the excitation rank
-                            excitation_rank = a_diff_count + b_diff_count
-                            
-                            # increment count of configurations with this excitation rank
-                            self.casci_config_count_by_rank[excitation_rank] += 1
-                            
-                            # accumulate sum of squared weights for this excitation rank
-                            self.casci_sum_squared_weight_by_rank[excitation_rank] += c_i ** 2
-
-
-                        inactive_list = list(x for x in range(self.n_in_a))
-                        alphalist2 = [x + self.n_in_a for x in alphalist]
-                        # alphalist2[0:0] = inactive_list
-                        betalist2 = [x + self.n_in_a for x in betalist]
-                        # betalist2[0:0] = inactive_list
+                            a_ref = np.array(alphalist)
+                            b_ref = np.array(betalist)
                         
-                        # only print first 10
-                        if j <= 10:
-                            print(
-                                "%20.12lf"
-                                % c_i,
-                                "%9.3d" % (index[eigenvecs.shape[1] - j - 1]),
-                                "alpha",
-                                alphalist2,
-                                "   beta",
-                                betalist2,
-                                "%4.1d" % (photon_p),
-                                "photon",
-                                "excitation ranke",
-                                excitation_rank
-                            )
+                        #for j in range(min(H_dim, 10)):
+                        for j in range(H_dim):
+                            Idet = index[eigenvecs.shape[1] - j - 1] % self.num_det
+                            photon_p = (
+                                index[eigenvecs.shape[1] - j - 1] - Idet
+                            ) // self.num_det
+                            Ib = Idet % self.num_alpha
+                            Ia = Idet // self.num_alpha
+                            a = c_index_to_string(Ia, self.n_act_a, self.n_act_orb, Y)
+                            b = c_index_to_string(Ib, self.n_act_a, self.n_act_orb, Y)
+
+                            alphalist = Determinant.obtBits2ObtIndexList(a)
+                            betalist = Determinant.obtBits2ObtIndexList(b)
+
+                            c_i = eigenvecs[i][index[eigenvecs.shape[1] - j - 1]]
+
+                            if i==0:
+                                a_curr = np.array(alphalist)
+                                b_curr = np.array(betalist)
+                                
+                                a_diff_count = np.sum(a_ref != a_curr)
+                                b_diff_count = np.sum(b_ref != b_curr)
+                                
+                                # sum of alpha and beta difference instances is the excitation rank
+                                excitation_rank = a_diff_count + b_diff_count
+                                
+                                # increment count of configurations with this excitation rank
+                                self.casci_config_count_by_rank[excitation_rank] += 1
+                                
+                                # accumulate sum of squared weights for this excitation rank
+                                self.casci_sum_squared_weight_by_rank[excitation_rank] += c_i ** 2
+
+
+                            inactive_list = list(x for x in range(self.n_in_a))
+                            alphalist2 = [x + self.n_in_a for x in alphalist]
+                            # alphalist2[0:0] = inactive_list
+                            betalist2 = [x + self.n_in_a for x in betalist]
+                            # betalist2[0:0] = inactive_list
+                            
+                            # only print first 10
+                            if j <= 10:
+                                print(
+                                    "%20.12lf"
+                                    % c_i,
+                                    "%9.3d" % (index[eigenvecs.shape[1] - j - 1]),
+                                    "alpha",
+                                    alphalist2,
+                                    "   beta",
+                                    betalist2,
+                                    "%4.1d" % (photon_p),
+                                    "photon",
+                                    "excitation ranke",
+                                    excitation_rank
+                                )
 
                 print(" GOING TO COMPUTE 1-E PROPERTIES!", flush=True)
                 _mu_x_spin = np.einsum(
@@ -2070,8 +2161,135 @@ class PFHamiltonianGenerator:
                     "{:^20s}".format("dipole y"),
                     "{:^20s}".format("dipole z"),
                 )
-                for i in range(self.davidson_roots):
-                    for j in range(i, self.davidson_roots):
+                if self.diag:
+                    for i in range(self.davidson_roots):
+                        for j in range(i, self.davidson_roots):
+                            one_rdm = np.zeros((self.n_occupied * self.n_occupied))
+                            c_build_one_rdm(
+                                eigenvecs,
+                                eigenvecs,
+                                one_rdm,
+                                self.table,
+                                self.n_act_a,
+                                self.n_act_orb,
+                                self.n_in_a,
+                                np1,
+                                i,
+                                j,
+                                False
+                            )
+                            dipole_x = np.dot(_mu_x_spin.flatten(), one_rdm)
+                            dipole_y = np.dot(_mu_y_spin.flatten(), one_rdm)
+                            dipole_z = np.dot(_mu_z_spin.flatten(), one_rdm)
+                            # dipole_x = c_one_electron_properties(_mu_x_spin, eigenvecs, rdm_eig, self.table, self.n_act_a, self.n_act_orb, self.n_in_a, self.nmo, np1, i, j)
+                            print(
+                                "{:4d}".format(i),
+                                "->",
+                                "{:4d}".format(j),
+                                "{:20.12f}".format(dipole_x),
+                                "{:20.12f}".format(dipole_y),
+                                "{:20.12f}".format(dipole_z),
+                                flush=True,
+                            )
+                            if i == j:
+                                one_rdm = np.reshape(
+                                    one_rdm, (self.n_occupied, self.n_occupied)
+                                )
+                                rdm_eig = np.linalg.eigvalsh(one_rdm)
+                                self.nat_obt_number[i, :] = rdm_eig[np.argsort(-rdm_eig)][:]
+                            self.electronic_dipole_array[i, j, 0] = dipole_x
+                            self.electronic_dipole_array[i, j, 1] = dipole_y
+                            self.electronic_dipole_array[i, j, 2] = dipole_z
+
+                    # combine nuclear and electronic parts for the total dipole array
+                    self.dipole_array = (
+                        self.electronic_dipole_array + self.nuclear_dipole_array
+                    )
+
+                else:
+                    print(" Dipole moments not computed for DMRG yet!", flush=True)
+                
+
+                active_fock_core = self.fock_core[
+                    self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied
+                ]
+
+                twoeint2 = self.twoeint.reshape(
+                        (self.nmo, self.nmo, self.nmo, self.nmo)
+                    )
+
+                twoeint2 = twoeint2[
+                        : self.n_occupied,
+                        : self.n_occupied,
+                        : self.n_occupied,
+                        : self.n_occupied,
+                    ]
+
+                active_twoeint = twoeint2[
+                        self.n_in_a : self.n_occupied,
+                        self.n_in_a : self.n_occupied,
+                        self.n_in_a : self.n_occupied,
+                        self.n_in_a : self.n_occupied,
+                    ]
+
+                if self.diag:            
+                    # print(self.nat_obt_number)
+                    ###check total energy
+                    print("check total energy using full rdms", flush=True)
+
+                    for i in range(self.davidson_roots):
+                        sum_energy = 0.0
+                        off_diagonal_constant_energy = 0.0
+                        photon_energy = 0.0
+                        eigenvecs2 = eigenvecs[i].reshape((np1, self.num_det))
+                        eigenvecs2 = eigenvecs2.transpose(1, 0)
+                        for m in range(np1):
+                            if self.N_p == 0:
+                                continue
+                            if m > 0 and m < self.N_p:
+                                off_diagonal_constant_energy += (
+                                    np.sqrt(m * self.omega / 2)
+                                    * self.d_exp
+                                    * np.dot(
+                                        eigenvecs2[:, m : (m + 1)].flatten(),
+                                        eigenvecs2[:, (m - 1) : m].flatten(),
+                                    )
+                                )
+                                off_diagonal_constant_energy += (
+                                    np.sqrt((m + 1) * self.omega / 2)
+                                    * self.d_exp
+                                    * np.dot(
+                                        eigenvecs2[:, m : (m + 1)].flatten(),
+                                        eigenvecs2[:, (m + 1) : (m + 2)].flatten(),
+                                    )
+                                )
+                            elif m == self.N_p:
+                                off_diagonal_constant_energy += (
+                                    np.sqrt(m * self.omega / 2)
+                                    * self.d_exp
+                                    * np.dot(
+                                        eigenvecs2[:, m : (m + 1)].flatten(),
+                                        eigenvecs2[:, (m - 1) : m].flatten(),
+                                    )
+                                )
+                            else:
+                                off_diagonal_constant_energy += (
+                                    np.sqrt((m + 1) * self.omega / 2)
+                                    * self.d_exp
+                                    * np.dot(
+                                        eigenvecs2[:, m : (m + 1)].flatten(),
+                                        eigenvecs2[:, (m + 1) : (m + 2)].flatten(),
+                                    )
+                                )
+                            photon_energy += (
+                                m
+                                * self.omega
+                                * np.dot(
+                                    eigenvecs2[:, m : (m + 1)].flatten(),
+                                    eigenvecs2[:, m : (m + 1)].flatten(),
+                                )
+                            )
+
                         one_rdm = np.zeros((self.n_occupied * self.n_occupied))
                         c_build_one_rdm(
                             eigenvecs,
@@ -2083,385 +2301,282 @@ class PFHamiltonianGenerator:
                             self.n_in_a,
                             np1,
                             i,
-                            j,
+                            i,
                             False
                         )
-                        dipole_x = np.dot(_mu_x_spin.flatten(), one_rdm)
-                        dipole_y = np.dot(_mu_y_spin.flatten(), one_rdm)
-                        dipole_z = np.dot(_mu_z_spin.flatten(), one_rdm)
-                        # dipole_x = c_one_electron_properties(_mu_x_spin, eigenvecs, rdm_eig, self.table, self.n_act_a, self.n_act_orb, self.n_in_a, self.nmo, np1, i, j)
+                        two_rdm = np.zeros(
+                            (
+                                self.n_occupied
+                                * self.n_occupied
+                                * self.n_occupied
+                                * self.n_occupied
+                            )
+                        )
+                        c_build_two_rdm(
+                            eigenvecs,
+                            eigenvecs,
+                            two_rdm,
+                            self.table,
+                            self.n_act_a,
+                            self.n_act_orb,
+                            self.n_in_a,
+                            np1,
+                            i,
+                            i,
+                            False
+                        )
+                        # for t in range(self.n_occupied):
+                        #    for u in range(self.n_occupied):
+                        #        tu = t * self.n_occupied + u
+                        #        for v in range(self.n_occupied):
+                        #            for w in range(self.n_occupied):
+                        #                vw = v * self.n_occupied + w
+                        #                print(two_rdm[tu * self.n_occupied * self.n_occupied + vw],
+                        #                   two_rdm2[tu * self.n_occupied * self.n_occupied + vw],
+                        #                   two_rdm[tu * self.n_occupied * self.n_occupied + vw]-
+                        #                   two_rdm2[tu * self.n_occupied * self.n_occupied + vw], t,u,v,w,
+                        #                   (t * self.n_occupied + u)*self.n_occupied*self.n_occupied + v*self.n_occupied + w
+                        #                   )
+
+                        Dpe = np.zeros((self.n_occupied * self.n_occupied))
+                        c_build_photon_electron_one_rdm(
+                            eigenvecs,
+                            eigenvecs,
+                            Dpe,
+                            self.table,
+                            self.n_act_a,
+                            self.n_act_orb,
+                            self.n_in_a,
+                            np1,
+                            i,
+                            i,
+                        )
+                        
+                        #one_rdm_temp = one_rdm.reshape((self.n_occupied, self.n_occupied))
+                        #one_rdm_full = np.zeros((self.nmo, self.nmo))
+                        #one_rdm_full[:self.n_occupied,:self.n_occupied] = one_rdm_temp[:,:] 
+                        #_eig, _vec = np.linalg.eigh(one_rdm_full)
+                        #_idx = _eig.argsort()[::-1]
+                        #self.noocs = _eig[_idx]
+                        #print("state",i)
+                        #print("eigenvalues of 1-RDM")
+                        #print(self.noocs)
+                        #print("sum of 1-RDM eigenvalues", np.sum(self.noocs))
+                        #one_rdm_pe_temp = Dpe.reshape((self.n_occupied, self.n_occupied))
+                        #one_rdm_pe_full = np.zeros((self.nmo, self.nmo))
+                        #one_rdm_pe_full[:self.n_occupied,:self.n_occupied] = one_rdm_pe_temp[:,:] 
+                        #_eig, _vec = np.linalg.eigh(one_rdm_pe_full)
+                        #_idx = _eig.argsort()[::-1]
+                        #self.noocs_pe = _eig[_idx]
+
+                        #print("1-pe-RDM in NO basis")
+                        #print(self.noocs_pe)
+                        #print("sum of 1-pe-RDM eigenvalues", np.sum(self.noocs_pe))
+                        #np.savetxt("occupation_number.out", self.noocs)
+                        #self.no_vec = _vec[:, _idx]
+                        #self.nat_orbs = np.dot(new_C, self.no_vec)
+                        #np.savetxt("natural_orbital.out", self.nat_orbs)
+
+                        # two_rdm2 = two_rdm.reshape((self.n_occupied * self.n_occupied, self.n_occupied * self.n_occupied))
+                        # print(two_rdm2[:(self.n_in_a*self.n_in_a),:(self.n_in_a*self.n_in_a)])
+                        # np.savetxt('correct_rdm.txt', two_rdm2)
+
+                        # one_rdm2 = np.zeros((self.nmo * self.nmo))
+                        # for p in range(self.nmo):
+                        #    for q in range(self.nmo):
+                        #        dum = 0.0
+                        #        for r in range(self.nmo):
+                        #            dum += 0.5/(self.n_act_a+self.n_in_a-0.5) * two_rdm[p * self.nmo * self.nmo * self.nmo + r * self.nmo * self.nmo + q * self.nmo + r]
+                        #        one_rdm2[p * self.nmo + q] = dum
+
+                        one_e_energy = np.dot(
+                            self.H_spatial2[: self.n_occupied, : self.n_occupied].flatten(),
+                            one_rdm,
+                        )
+                        two_e_energy = 0.5 * np.dot(twoeint2.flatten(), two_rdm)
+                        one_pe_energy = -np.sqrt(self.omega / 2) * np.dot(
+                            self.d_cmo[: self.n_occupied, : self.n_occupied].flatten(), Dpe
+                        )
+                        sum_energy = (
+                            one_e_energy
+                            + two_e_energy
+                            + self.Enuc
+                            + one_pe_energy
+                            + off_diagonal_constant_energy
+                            + self.d_c
+                            + photon_energy
+                        )
+                        
+                        # print("1e integral")
+                        # for k in range(self.n_occupied):
+                        #    for l in range(self.n_occupied):
+                        #        print("{:20.16f}".format(self.H_spatial2[k,l]), k, l, flush = True)
+                        # print("1-rdm")
+                        # for k in range(self.n_occupied):
+                        #    for l in range(self.n_occupied):
+                        #        print("{:20.16f}".format(one_rdm[k * self.n_occupied + l]), k, l, flush = True)
+                        # print("2e integral")
+                        # for k in range(self.n_occupied):
+                        #    for l in range(self.n_occupied):
+                        #        for m in range(self.n_occupied):
+                        #            for n in range(self.n_occupied):
+                        #                print("{:20.16f}".format(twoeint2[k,l,m,n]), k, l, m, n, flush = True)
+                        # print("2-rdm")
+                        # for k in range(self.n_occupied):
+                        #    for l in range(self.n_occupied):
+                        #        for m in range(self.n_occupied):
+                        #            for n in range(self.n_occupied):
+                        #                print("{:20.16f}".format(two_rdm[k * self.n_occupied * self.n_occupied * self.n_occupied +
+                        #                    l* self.n_occupied * self.n_occupied + m * self.n_occupied +n]), k, l, m, n, flush = True)
+
+                        # store the RDMs as a self attribute if the current state matches the rdm root
+                        if self.rdm_root == i:
+                            self.one_electron_rdm = np.copy(one_rdm)
+                            self.one_electron_one_photon_rdm = np.copy(Dpe)
+                            self.two_electron_rdm = np.copy(two_rdm)
+                            self.total_energy_from_rdms = sum_energy
                         print(
                             "{:4d}".format(i),
-                            "->",
-                            "{:4d}".format(j),
-                            "{:20.12f}".format(dipole_x),
-                            "{:20.12f}".format(dipole_y),
-                            "{:20.12f}".format(dipole_z),
-                            flush=True,
-                        )
-                        if i == j:
-                            one_rdm = np.reshape(
-                                one_rdm, (self.n_occupied, self.n_occupied)
-                            )
-                            rdm_eig = np.linalg.eigvalsh(one_rdm)
-                            self.nat_obt_number[i, :] = rdm_eig[np.argsort(-rdm_eig)][:]
-                        self.electronic_dipole_array[i, j, 0] = dipole_x
-                        self.electronic_dipole_array[i, j, 1] = dipole_y
-                        self.electronic_dipole_array[i, j, 2] = dipole_z
-
-                # combine nuclear and electronic parts for the total dipole array
-                self.dipole_array = (
-                    self.electronic_dipole_array + self.nuclear_dipole_array
-                )
-                # print(self.nat_obt_number)
-                ###check total energy
-                print("check total energy using full rdms", flush=True)
-                twoeint2 = self.twoeint.reshape(
-                    (self.nmo, self.nmo, self.nmo, self.nmo)
-                )
-                twoeint2 = twoeint2[
-                    : self.n_occupied,
-                    : self.n_occupied,
-                    : self.n_occupied,
-                    : self.n_occupied,
-                ]
-                for i in range(self.davidson_roots):
-                    sum_energy = 0.0
-                    off_diagonal_constant_energy = 0.0
-                    photon_energy = 0.0
-                    eigenvecs2 = eigenvecs[i].reshape((np1, self.num_det))
-                    eigenvecs2 = eigenvecs2.transpose(1, 0)
-                    for m in range(np1):
-                        if self.N_p == 0:
-                            continue
-                        if m > 0 and m < self.N_p:
-                            off_diagonal_constant_energy += (
-                                np.sqrt(m * self.omega / 2)
-                                * self.d_exp
-                                * np.dot(
-                                    eigenvecs2[:, m : (m + 1)].flatten(),
-                                    eigenvecs2[:, (m - 1) : m].flatten(),
-                                )
-                            )
-                            off_diagonal_constant_energy += (
-                                np.sqrt((m + 1) * self.omega / 2)
-                                * self.d_exp
-                                * np.dot(
-                                    eigenvecs2[:, m : (m + 1)].flatten(),
-                                    eigenvecs2[:, (m + 1) : (m + 2)].flatten(),
-                                )
-                            )
-                        elif m == self.N_p:
-                            off_diagonal_constant_energy += (
-                                np.sqrt(m * self.omega / 2)
-                                * self.d_exp
-                                * np.dot(
-                                    eigenvecs2[:, m : (m + 1)].flatten(),
-                                    eigenvecs2[:, (m - 1) : m].flatten(),
-                                )
-                            )
-                        else:
-                            off_diagonal_constant_energy += (
-                                np.sqrt((m + 1) * self.omega / 2)
-                                * self.d_exp
-                                * np.dot(
-                                    eigenvecs2[:, m : (m + 1)].flatten(),
-                                    eigenvecs2[:, (m + 1) : (m + 2)].flatten(),
-                                )
-                            )
-                        photon_energy += (
-                            m
-                            * self.omega
-                            * np.dot(
-                                eigenvecs2[:, m : (m + 1)].flatten(),
-                                eigenvecs2[:, m : (m + 1)].flatten(),
-                            )
+                            "{:20.12f}".format(eigenvals[i]),
+                            "{:20.12f}".format(sum_energy),
+                            "{:20.12f}".format(eigenvals[i] - sum_energy, flush=True),
                         )
 
-                    one_rdm = np.zeros((self.n_occupied * self.n_occupied))
-                    c_build_one_rdm(
-                        eigenvecs,
-                        eigenvecs,
-                        one_rdm,
-                        self.table,
-                        self.n_act_a,
-                        self.n_act_orb,
-                        self.n_in_a,
-                        np1,
-                        i,
-                        i,
-                        False
-                    )
-                    two_rdm = np.zeros(
-                        (
-                            self.n_occupied
-                            * self.n_occupied
-                            * self.n_occupied
-                            * self.n_occupied
-                        )
-                    )
-                    c_build_two_rdm(
-                        eigenvecs,
-                        eigenvecs,
-                        two_rdm,
-                        self.table,
-                        self.n_act_a,
-                        self.n_act_orb,
-                        self.n_in_a,
-                        np1,
-                        i,
-                        i,
-                        False
-                    )
-                    # for t in range(self.n_occupied):
-                    #    for u in range(self.n_occupied):
-                    #        tu = t * self.n_occupied + u
-                    #        for v in range(self.n_occupied):
-                    #            for w in range(self.n_occupied):
-                    #                vw = v * self.n_occupied + w
-                    #                print(two_rdm[tu * self.n_occupied * self.n_occupied + vw],
-                    #                   two_rdm2[tu * self.n_occupied * self.n_occupied + vw],
-                    #                   two_rdm[tu * self.n_occupied * self.n_occupied + vw]-
-                    #                   two_rdm2[tu * self.n_occupied * self.n_occupied + vw], t,u,v,w,
-                    #                   (t * self.n_occupied + u)*self.n_occupied*self.n_occupied + v*self.n_occupied + w
-                    #                   )
-
-                    Dpe = np.zeros((self.n_occupied * self.n_occupied))
-                    c_build_photon_electron_one_rdm(
-                        eigenvecs,
-                        eigenvecs,
-                        Dpe,
-                        self.table,
-                        self.n_act_a,
-                        self.n_act_orb,
-                        self.n_in_a,
-                        np1,
-                        i,
-                        i,
-                    )
-                    
-                    #one_rdm_temp = one_rdm.reshape((self.n_occupied, self.n_occupied))
-                    #one_rdm_full = np.zeros((self.nmo, self.nmo))
-                    #one_rdm_full[:self.n_occupied,:self.n_occupied] = one_rdm_temp[:,:] 
-                    #_eig, _vec = np.linalg.eigh(one_rdm_full)
-                    #_idx = _eig.argsort()[::-1]
-                    #self.noocs = _eig[_idx]
-                    #print("state",i)
-                    #print("eigenvalues of 1-RDM")
-                    #print(self.noocs)
-                    #print("sum of 1-RDM eigenvalues", np.sum(self.noocs))
-                    #one_rdm_pe_temp = Dpe.reshape((self.n_occupied, self.n_occupied))
-                    #one_rdm_pe_full = np.zeros((self.nmo, self.nmo))
-                    #one_rdm_pe_full[:self.n_occupied,:self.n_occupied] = one_rdm_pe_temp[:,:] 
-                    #_eig, _vec = np.linalg.eigh(one_rdm_pe_full)
-                    #_idx = _eig.argsort()[::-1]
-                    #self.noocs_pe = _eig[_idx]
-
-                    #print("1-pe-RDM in NO basis")
-                    #print(self.noocs_pe)
-                    #print("sum of 1-pe-RDM eigenvalues", np.sum(self.noocs_pe))
-                    #np.savetxt("occupation_number.out", self.noocs)
-                    #self.no_vec = _vec[:, _idx]
-                    #self.nat_orbs = np.dot(new_C, self.no_vec)
-                    #np.savetxt("natural_orbital.out", self.nat_orbs)
-
-                    # two_rdm2 = two_rdm.reshape((self.n_occupied * self.n_occupied, self.n_occupied * self.n_occupied))
-                    # print(two_rdm2[:(self.n_in_a*self.n_in_a),:(self.n_in_a*self.n_in_a)])
-                    # np.savetxt('correct_rdm.txt', two_rdm2)
-
-                    # one_rdm2 = np.zeros((self.nmo * self.nmo))
-                    # for p in range(self.nmo):
-                    #    for q in range(self.nmo):
-                    #        dum = 0.0
-                    #        for r in range(self.nmo):
-                    #            dum += 0.5/(self.n_act_a+self.n_in_a-0.5) * two_rdm[p * self.nmo * self.nmo * self.nmo + r * self.nmo * self.nmo + q * self.nmo + r]
-                    #        one_rdm2[p * self.nmo + q] = dum
-
-                    one_e_energy = np.dot(
-                        self.H_spatial2[: self.n_occupied, : self.n_occupied].flatten(),
-                        one_rdm,
-                    )
-                    two_e_energy = 0.5 * np.dot(twoeint2.flatten(), two_rdm)
-                    one_pe_energy = -np.sqrt(self.omega / 2) * np.dot(
-                        self.d_cmo[: self.n_occupied, : self.n_occupied].flatten(), Dpe
-                    )
-                    sum_energy = (
-                        one_e_energy
-                        + two_e_energy
-                        + self.Enuc
-                        + one_pe_energy
-                        + off_diagonal_constant_energy
-                        + self.d_c
-                        + photon_energy
-                    )
-                    
-                    # print("1e integral")
-                    # for k in range(self.n_occupied):
-                    #    for l in range(self.n_occupied):
-                    #        print("{:20.16f}".format(self.H_spatial2[k,l]), k, l, flush = True)
-                    # print("1-rdm")
-                    # for k in range(self.n_occupied):
-                    #    for l in range(self.n_occupied):
-                    #        print("{:20.16f}".format(one_rdm[k * self.n_occupied + l]), k, l, flush = True)
-                    # print("2e integral")
-                    # for k in range(self.n_occupied):
-                    #    for l in range(self.n_occupied):
-                    #        for m in range(self.n_occupied):
-                    #            for n in range(self.n_occupied):
-                    #                print("{:20.16f}".format(twoeint2[k,l,m,n]), k, l, m, n, flush = True)
-                    # print("2-rdm")
-                    # for k in range(self.n_occupied):
-                    #    for l in range(self.n_occupied):
-                    #        for m in range(self.n_occupied):
-                    #            for n in range(self.n_occupied):
-                    #                print("{:20.16f}".format(two_rdm[k * self.n_occupied * self.n_occupied * self.n_occupied +
-                    #                    l* self.n_occupied * self.n_occupied + m * self.n_occupied +n]), k, l, m, n, flush = True)
-
-                    # store the RDMs as a self attribute if the current state matches the rdm root
-                    if self.rdm_root == i:
-                        self.one_electron_rdm = np.copy(one_rdm)
-                        self.one_electron_one_photon_rdm = np.copy(Dpe)
-                        self.two_electron_rdm = np.copy(two_rdm)
-                        self.total_energy_from_rdms = sum_energy
+                    print("check total energy using active rdms")
                     print(
-                        "{:4d}".format(i),
-                        "{:20.12f}".format(eigenvals[i]),
-                        "{:20.12f}".format(sum_energy),
-                        "{:20.12f}".format(eigenvals[i] - sum_energy, flush=True),
+                        "{:10s}".format("state"),
+                        "{:20s}".format("active_one"),
+                        "{:20s}".format("active_two"),
+                        "{:20s}".format("active_one_pe"),
+                        "{:20s}".format("eigenvalues"),
+                        "{:20s}".format("total energies"),
+                        "error",
                     )
 
-                print("check total energy using active rdms")
-                print(
-                    "{:10s}".format("state"),
-                    "{:20s}".format("active_one"),
-                    "{:20s}".format("active_two"),
-                    "{:20s}".format("eigenvalues"),
-                    "{:20s}".format("total energies"),
-                    "error",
-                )
-                active_twoeint = twoeint2[
-                    self.n_in_a : self.n_occupied,
-                    self.n_in_a : self.n_occupied,
-                    self.n_in_a : self.n_occupied,
-                    self.n_in_a : self.n_occupied,
-                ]
-                active_fock_core = self.fock_core[
-                    self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied
-                ]
-                for i in range(self.davidson_roots):
-                    self.D_tu = np.zeros((self.n_act_orb * self.n_act_orb))
-                    self.Dpe_tu = np.zeros((self.n_act_orb * self.n_act_orb))
-                    self.D_tuvw = np.zeros(
-                        (
-                            self.n_act_orb
-                            * self.n_act_orb
-                            * self.n_act_orb
-                            * self.n_act_orb
-                        )
-                    )
-                    sum_energy = 0.0
-                    off_diagonal_constant_energy = 0.0
-                    photon_energy = 0.0
-                    eigenvecs2 = eigenvecs[i].reshape((np1, self.num_det))
-                    eigenvecs2 = eigenvecs2.transpose(1, 0)
-                    for m in range(np1):
-                        if self.N_p == 0:
-                            continue
-                        if m > 0 and m < self.N_p:
-                            off_diagonal_constant_energy += (
-                                np.sqrt(m * self.omega / 2)
-                                * (self.d_exp - d_diag)
-                                * np.dot(
-                                    eigenvecs2[:, m : (m + 1)].flatten(),
-                                    eigenvecs2[:, (m - 1) : m].flatten(),
-                                )
-                            )
-                            off_diagonal_constant_energy += (
-                                np.sqrt((m + 1) * self.omega / 2)
-                                * (self.d_exp - d_diag)
-                                * np.dot(
-                                    eigenvecs2[:, m : (m + 1)].flatten(),
-                                    eigenvecs2[:, (m + 1) : (m + 2)].flatten(),
-                                )
-                            )
-                        elif m == self.N_p:
-                            off_diagonal_constant_energy += (
-                                np.sqrt(m * self.omega / 2)
-                                * (self.d_exp - d_diag)
-                                * np.dot(
-                                    eigenvecs2[:, m : (m + 1)].flatten(),
-                                    eigenvecs2[:, (m - 1) : m].flatten(),
-                                )
-                            )
-                        else:
-                            off_diagonal_constant_energy += (
-                                np.sqrt((m + 1) * self.omega / 2)
-                                * (self.d_exp - d_diag)
-                                * np.dot(
-                                    eigenvecs2[:, m : (m + 1)].flatten(),
-                                    eigenvecs2[:, (m + 1) : (m + 2)].flatten(),
-                                )
-                            )
-                        photon_energy += (
-                            m
-                            * self.omega
-                            * np.dot(
-                                eigenvecs2[:, m : (m + 1)].flatten(),
-                                eigenvecs2[:, m : (m + 1)].flatten(),
-                            )
-                        )
-                    c_build_active_rdm(
-                        eigenvecs,
-                        self.D_tu,
-                        self.D_tuvw,
-                        self.table,
-                        self.n_act_a,
-                        self.n_act_orb,
-                        np1,
-                        i,
-                        i,
-                        1.0,
-                    )
-                    c_build_active_photon_electron_one_rdm(
-                        eigenvecs,
-                        self.Dpe_tu,
-                        self.table,
-                        self.n_act_a,
-                        self.n_act_orb,
-                        np1,
-                        i,
-                        i,
-                        1.0,
-                    )
-                    active_one_e_energy = np.dot(active_fock_core.flatten(), self.D_tu)
-                    active_two_e_energy = 0.5 * np.dot(
-                        active_twoeint.flatten(), self.D_tuvw
-                    )
-                    active_one_pe_energy = -np.sqrt(self.omega / 2) * np.dot(
-                        self.d_cmo[
-                            self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied
-                        ].flatten(),
-                        self.Dpe_tu,
-                    )
-                    sum_energy = (
-                        active_one_e_energy
-                        + active_two_e_energy
-                        + active_one_pe_energy
-                        + self.E_core
-                        + self.Enuc
-                        + self.d_c
-                        + off_diagonal_constant_energy
-                        + photon_energy
-                    )
 
-                    print(
-                        "{:4d}".format(i),
-                        "{:20.12f}".format(active_one_e_energy),
-                        "{:20.12f}".format(active_two_e_energy),
-                        "{:20.12f}".format(eigenvals[i]),
-                        "{:20.12f}".format(sum_energy),
-                        "{:20.12f}".format(eigenvals[i] - sum_energy),
-                    )
+                    for i in range(self.davidson_roots):
+                        self.D_tu = np.zeros((self.n_act_orb * self.n_act_orb))
+                        self.Dpe_tu = np.zeros((self.n_act_orb * self.n_act_orb))
+                        self.D_tuvw = np.zeros(
+                            (
+                                self.n_act_orb
+                                * self.n_act_orb
+                                * self.n_act_orb
+                                * self.n_act_orb
+                            )
+                        )
+                        sum_energy = 0.0
+                        off_diagonal_constant_energy = 0.0
+                        photon_energy = 0.0
+                        eigenvecs2 = eigenvecs[i].reshape((np1, self.num_det))
+                        eigenvecs2 = eigenvecs2.transpose(1, 0)
+                        for m in range(np1):
+                            if self.N_p == 0:
+                                continue
+                            if m > 0 and m < self.N_p:
+                                off_diagonal_constant_energy += (
+                                    np.sqrt(m * self.omega / 2)
+                                    * (self.d_exp - d_diag)
+                                    * np.dot(
+                                        eigenvecs2[:, m : (m + 1)].flatten(),
+                                        eigenvecs2[:, (m - 1) : m].flatten(),
+                                    )
+                                )
+                                off_diagonal_constant_energy += (
+                                    np.sqrt((m + 1) * self.omega / 2)
+                                    * (self.d_exp - d_diag)
+                                    * np.dot(
+                                        eigenvecs2[:, m : (m + 1)].flatten(),
+                                        eigenvecs2[:, (m + 1) : (m + 2)].flatten(),
+                                    )
+                                )
+                            elif m == self.N_p:
+                                off_diagonal_constant_energy += (
+                                    np.sqrt(m * self.omega / 2)
+                                    * (self.d_exp - d_diag)
+                                    * np.dot(
+                                        eigenvecs2[:, m : (m + 1)].flatten(),
+                                        eigenvecs2[:, (m - 1) : m].flatten(),
+                                    )
+                                )
+                            else:
+                                off_diagonal_constant_energy += (
+                                    np.sqrt((m + 1) * self.omega / 2)
+                                    * (self.d_exp - d_diag)
+                                    * np.dot(
+                                        eigenvecs2[:, m : (m + 1)].flatten(),
+                                        eigenvecs2[:, (m + 1) : (m + 2)].flatten(),
+                                    )
+                                )
+                            photon_energy += (
+                                m
+                                * self.omega
+                                * np.dot(
+                                    eigenvecs2[:, m : (m + 1)].flatten(),
+                                    eigenvecs2[:, m : (m + 1)].flatten(),
+                                )
+                            )
+                        c_build_active_rdm(
+                            eigenvecs,
+                            self.D_tu,
+                            self.D_tuvw,
+                            self.table,
+                            self.n_act_a,
+                            self.n_act_orb,
+                            np1,
+                            i,
+                            i,
+                            1.0,
+                        )
+                        c_build_active_photon_electron_one_rdm(
+                            eigenvecs,
+                            self.Dpe_tu,
+                            self.table,
+                            self.n_act_a,
+                            self.n_act_orb,
+                            np1,
+                            i,
+                            i,
+                            1.0,
+                        )
+
+                                
+                        active_one_e_energy = np.dot(active_fock_core.flatten(), self.D_tu)
+                        active_two_e_energy = 0.5 * np.dot(
+                            active_twoeint.flatten(), self.D_tuvw
+                        )
+                        active_one_pe_energy = -np.sqrt(self.omega / 2) * np.dot(
+                            self.d_cmo[
+                                self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied
+                            ].flatten(),
+                            self.Dpe_tu,
+                        )
+                        sum_energy = (
+                            active_one_e_energy
+                            + active_two_e_energy
+                            + active_one_pe_energy
+                            + self.E_core
+                            + self.Enuc
+                            + self.d_c
+                            + off_diagonal_constant_energy
+                            + photon_energy
+                        )
+
+
+                        print(
+                            "{:4d}".format(i),
+                            "{:20.12f}".format(active_one_e_energy),
+                            "{:20.12f}".format(active_two_e_energy),
+                            "{:20.12f}".format(active_one_pe_energy),
+                            "{:20.12f}".format(self.d_c),
+                            "{:20.12f}".format(off_diagonal_constant_energy),
+                            "{:20.12f}".format(photon_energy),
+                            "{:20.12f}".format(eigenvals[i]),
+                            "{:20.12f}".format(sum_energy),
+                            "{:20.12f}".format(eigenvals[i] - sum_energy),
+                        )
+
+                """""
                 # print(self.Dpe_tu.reshape((self.n_act_orb,self.n_act_orb))-self.Dpe_tu.reshape((self.n_act_orb,self.n_act_orb)).transpose())
                 # self.gkl3 = np.zeros((self.n_act_orb, self.n_act_orb))
                 # self.twoeint3 = np.zeros((self.nmo * self.nmo, self.nmo * self.nmo))
@@ -2493,7 +2608,16 @@ class PFHamiltonianGenerator:
                 # np.set_printoptions(precision=12)
                 # print(np.diag(eig_mat))
                 ################################################################self.build_JK()
-                self.build_state_average_rdms(eigenvecs)
+"""
+
+                if self.diag:
+                    self.build_state_average_rdms(eigenvecs)
+                elif self.ci_level.lower() == "dmrg":
+                    ###get state-averaged rdms for DMRG
+                    self.build_state_average_rdms_DMRG(rdm1, rdm2, rdm_pe, rdm_n, rdm_b)
+
+
+                """
                 # print(self.D_tu_avg)
                 # print("qrqr")
                 # print(self.D_tu_avg2)
@@ -2577,75 +2701,86 @@ class PFHamiltonianGenerator:
                 #                #dum = self.D_tuvw_avg[tv * self.n_act_orb * self.n_act_orb + uw]-self.D_tuvw_avg[uw * self.n_act_orb * self.n_act_orb + tv]
                 #                #dum = self.D_tuvw_avg[tv * self.n_act_orb * self.n_act_orb + uw]-self.D_tuvw_avg[tv * self.n_act_orb * self.n_act_orb + wu]
                 #                if dum > 1e-14: print("hiha",'{:.12f}'.format(dum))
+"""
 
-                # test average energy
-                print("test average energy")
-                avg_energy = 0.0
-                for i in range(self.davidson_roots):
-                    avg_energy += self.weight[i] * eigenvals[i]
-                    # print(self.weight[i], eigenvals[i], self.weight[i] * eigenvals[i])
-                active_one_e_energy = np.dot(active_fock_core.flatten(), self.D_tu_avg)
-                active_two_e_energy = 0.5 * np.dot(
-                    active_twoeint.flatten(), self.D_tuvw_avg
-                )
-                active_one_pe_energy = -np.sqrt(self.omega / 2) * np.dot(
-                    self.d_cmo[
-                        self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied
-                    ].flatten(),
-                    self.Dpe_tu_avg,
-                )
-                ci_dependent_energy = self.calculate_ci_dependent_energy(
-                    eigenvecs, self.d_cmo
-                )
-                sum_energy = (
-                    active_one_e_energy
-                    + active_two_e_energy
-                    + active_one_pe_energy
-                    + self.E_core
-                    + self.Enuc
-                    + self.d_c
-                    + ci_dependent_energy
-                )
-                print(
-                    "average energy zero" "{:20.12f}".format(sum_energy),
-                    "{:20.12f}".format(avg_energy),
-                )
-                # print(
-                #    "{:20.12f}".format(sum_energy),
-                #    "{:20.12f}".format(active_one_e_energy),
-                #    "{:20.12f}".format(active_two_e_energy),
-                #    "{:20.12f}".format(active_one_pe_energy),
-                #    "{:20.12f}".format(self.E_core),
-                #    "{:20.12f}".format(self.Enuc),
-                #    "{:20.12f}".format(self.d_c),
-                #    "{:20.12f}".format(ci_dependent_energy),
-                # )
 
-                self.n_virtual = self.nmo - self.n_occupied
-                n_ai = self.n_in_a * self.n_act_orb
-                n_vi = self.n_in_a * self.n_virtual
-                n_va = self.n_act_orb * self.n_virtual
-                # build index map
-                self.index_map_size = n_ai + n_vi + n_va
-                self.index_map = np.zeros((self.index_map_size, 2), dtype=int)
-                index_count = 0
-                for r in range(self.nmo):
-                    for s in range(r + 1, self.nmo):
-                        if r < self.n_in_a and s < self.n_in_a:
-                            continue
-                        if (
-                            self.n_in_a <= r < self.n_occupied
-                            and self.n_in_a <= s < self.n_occupied
-                        ):
-                            continue
-                        if r >= self.n_occupied and s >= self.n_occupied:
-                            continue
-                        self.index_map[index_count][0] = s
-                        self.index_map[index_count][1] = r
-                        index_count += 1
+                if self.casscf_optimization:
+                    # test average energy
+                    print("test average energy")
+                    avg_energy = 0.0
+                    for i in range(self.davidson_roots):
+                        avg_energy += self.weight[i] * eigenvals[i]
+                        # print(self.weight[i], eigenvals[i], self.weight[i] * eigenvals[i])
+                    active_one_e_energy = np.dot(active_fock_core.flatten(), self.D_tu_avg)
+                    active_two_e_energy = 0.5 * np.dot(
+                        active_twoeint.flatten(), self.D_tuvw_avg
+                    )
+                    active_one_pe_energy = -np.sqrt(self.omega / 2) * np.dot(
+                        self.d_cmo[
+                            self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied
+                        ].flatten(),
+                        self.Dpe_tu_avg,
+                    )
 
-                self.index_map1 = self.index_map.astype("int32")
+                    if self.diag:
+                        ci_dependent_energy = self.calculate_ci_dependent_energy(
+                            eigenvecs, self.d_cmo
+                        )
+                    else: #expectation value_based approach needed
+                        ci_dependent_energy = 0.0
+                        ci_dependent_energy += self.omega * self.n[0,0]
+                        ci_dependent_energy += 2* np.sqrt(self.omega/2)* (self.d_exp - 2.0 * np.einsum("ii->", self.d_cmo[: self.n_in_a, : self.n_in_a])) * self.n_b[0, 0]
 
+                    sum_energy = (
+                        active_one_e_energy
+                        + active_two_e_energy
+                        + active_one_pe_energy
+                        + self.E_core
+                        + self.Enuc
+                        + self.d_c
+                        + ci_dependent_energy
+                    )
+                    print(
+                        "average energy zero" "{:20.12f}".format(sum_energy),
+                        "{:20.12f}".format(avg_energy),
+                    )
+                    print(
+                       "{:20.12f}".format(sum_energy),
+                       "{:20.12f}".format(active_one_e_energy),
+                       "{:20.12f}".format(active_two_e_energy),
+                       "{:20.12f}".format(active_one_pe_energy),
+                       "{:20.12f}".format(self.E_core),
+                       "{:20.12f}".format(self.Enuc),
+                       "{:20.12f}".format(self.d_c),
+                       "{:20.12f}".format(ci_dependent_energy),
+                    )
+
+                    self.n_virtual = self.nmo - self.n_occupied
+                    n_ai = self.n_in_a * self.n_act_orb
+                    n_vi = self.n_in_a * self.n_virtual
+                    n_va = self.n_act_orb * self.n_virtual
+                    # build index map
+                    self.index_map_size = n_ai + n_vi + n_va
+                    self.index_map = np.zeros((self.index_map_size, 2), dtype=int)
+                    index_count = 0
+                    for r in range(self.nmo):
+                        for s in range(r + 1, self.nmo):
+                            if r < self.n_in_a and s < self.n_in_a:
+                                continue
+                            if (
+                                self.n_in_a <= r < self.n_occupied
+                                and self.n_in_a <= s < self.n_occupied
+                            ):
+                                continue
+                            if r >= self.n_occupied and s >= self.n_occupied:
+                                continue
+                            self.index_map[index_count][0] = s
+                            self.index_map[index_count][1] = r
+                            index_count += 1
+
+                    self.index_map1 = self.index_map.astype("int32")
+
+                """
                 # print(self.n_in_a, self.n_act_orb, self.n_virtual, self.nmo, self.index_map)
                 ############################################TEST SIGMA BUILD#############################################
                 ####Rai= np.random.rand(self.n_act_orb,self.n_in_a)
@@ -3280,6 +3415,10 @@ class PFHamiltonianGenerator:
                 # self.build_unitary_matrix(Rai, Rvi, Rva)
                 ####print("U_delta", self.U_delta)
 
+                """
+
+
+
                 self.index_map_pq = np.zeros(
                     (self.nmo * (self.nmo + 1) // 2, 2), dtype=np.int32
                 )
@@ -3309,7 +3448,13 @@ class PFHamiltonianGenerator:
                         index_count += 1
                 self.H1 = copy.deepcopy(self.H_spatial2)
                 self.d_cmo1 = copy.deepcopy(self.d_cmo)
-                self.eigenvecs = eigenvecs
+                
+                if self.diag:
+                    self.eigenvecs = eigenvecs
+
+
+
+                """
                 # np.set_printoptions(precision=14, suppress = True)
                 ######test numerical gradient
                 #####step10 = np.zeros(self.index_map_size)
@@ -3771,7 +3916,15 @@ class PFHamiltonianGenerator:
                 ########    macroiteration += 1
                 ########end = timer()
                 ########print("optimization took", end - start)
+
+                """
+ 
+
+
                 if self.casscf_optimization == True:
+
+                    print("\nStarting CASSCF orbital optimization using the " + self.ci_level.upper() + " solver.\n")
+
                     ####back up wmk algorithm
                     if self.n_in_a == 0 and self.n_act_orb == self.nmo:
                         print(
@@ -3787,6 +3940,8 @@ class PFHamiltonianGenerator:
                         convergence = 0
                         while macroiteration < 20000:
                             if macroiteration > 0:
+
+
                                 # print("U total")
                                 # self.printA(self.U_total)
                                 occupied_J = np.zeros(
@@ -3816,7 +3971,6 @@ class PFHamiltonianGenerator:
                                     self.n_in_a : self.n_occupied,
                                     self.n_in_a : self.n_occupied,
                                 ]
-                                self.H_diag3 = np.zeros(H_dim)
                                 fock_core = copy.deepcopy(self.H_spatial2)
                                 fock_core += 2.0 * np.einsum(
                                     "jjrs->rs",
@@ -3849,58 +4003,116 @@ class PFHamiltonianGenerator:
                                 gkl2 = copy.deepcopy(active_fock_core)
                                 gkl2 -= 0.5 * np.einsum("kjjl->kl", active_twoeint)
 
-                                occupied_J = occupied_J.reshape(
-                                    self.n_occupied * self.n_occupied,
-                                    self.n_occupied * self.n_occupied,
-                                )
-                                c_H_diag_cas_spin(
-                                    occupied_fock_core,
-                                    occupied_J,
-                                    self.H_diag3,
-                                    self.N_p,
-                                    self.num_alpha,
-                                    self.nmo,
-                                    self.n_act_a,
-                                    self.n_act_orb,
-                                    self.n_in_a,
-                                    self.E_core,
-                                    self.omega,
-                                    self.Enuc,
-                                    self.d_c,
-                                    self.Y,
-                                    self.target_spin,
-                                )
+
                                 d_diag = 2.0 * np.einsum(
-                                    "ii->", self.d_cmo[: self.n_in_a, : self.n_in_a]
-                                )
-                                self.constdouble[3] = self.d_exp - d_diag
-                                # self.constdouble[4] = 1e-5
-                                self.constdouble[4] = self.davidson_threshold
-                                self.constdouble[5] = self.E_core
-                                self.constint[8] = self.davidson_maxiter
-                                eigenvals = np.zeros((self.davidson_roots))
-                                # eigenvecs = np.zeros((self.davidson_roots, H_dim))
-                                # eigenvecs[:,:] = 0.0
-                                # print("heyhey5", eigenvecs)
-                                c_get_roots(
-                                    gkl2,
-                                    occupied_J,
-                                    occupied_d_cmo,
-                                    self.H_diag3,
-                                    self.S_diag,
-                                    self.S_diag_projection,
-                                    eigenvals,
-                                    eigenvecs,
-                                    self.table,
-                                    self.table_creation,
-                                    self.table_annihilation,
-                                    self.b_array,
-                                    self.constint,
-                                    self.constdouble,
-                                    self.index_Hdiag,
-                                    True,
-                                    self.target_spin,
-                                )
+                                        "ii->", self.d_cmo[: self.n_in_a, : self.n_in_a]
+                                    )
+
+                                if self.diag:
+
+                                    occupied_J = occupied_J.reshape(
+                                        self.n_occupied * self.n_occupied,
+                                        self.n_occupied * self.n_occupied,
+                                    )
+
+                                    self.H_diag3 = np.zeros(H_dim)
+
+                                    c_H_diag_cas_spin(
+                                        occupied_fock_core,
+                                        occupied_J,
+                                        self.H_diag3,
+                                        self.N_p,
+                                        self.num_alpha,
+                                        self.nmo,
+                                        self.n_act_a,
+                                        self.n_act_orb,
+                                        self.n_in_a,
+                                        self.E_core,
+                                        self.omega,
+                                        self.Enuc,
+                                        self.d_c,
+                                        self.Y,
+                                        self.target_spin,
+                                    )
+                               
+                                    self.constdouble[3] = self.d_exp - d_diag
+                                    # self.constdouble[4] = 1e-5
+                                    self.constdouble[4] = self.davidson_threshold
+                                    self.constdouble[5] = self.E_core
+                                    self.constint[8] = self.davidson_maxiter
+                                    eigenvals = np.zeros((self.davidson_roots))
+                                    # eigenvecs = np.zeros((self.davidson_roots, H_dim))
+                                    # eigenvecs[:,:] = 0.0
+                                    # print("heyhey5", eigenvecs)
+                                    c_get_roots(
+                                        gkl2,
+                                        occupied_J,
+                                        occupied_d_cmo,
+                                        self.H_diag3,
+                                        self.S_diag,
+                                        self.S_diag_projection,
+                                        eigenvals,
+                                        eigenvecs,
+                                        self.table,
+                                        self.table_creation,
+                                        self.table_annihilation,
+                                        self.b_array,
+                                        self.constint,
+                                        self.constdouble,
+                                        self.index_Hdiag,
+                                        True,
+                                        self.target_spin,
+                                    )
+                                elif self.ci_level.lower() == "dmrg":
+                                    print("start DMRG calculation using the external MOLMPS program")
+                
+                                    core_int  = -2*np.sqrt(self.omega / 2)*np.einsum("jj->", self.d_cmo[: self.n_in_a, : self.n_in_a])
+                                    core_int +=  np.sqrt(self.omega / 2)*self.d_exp
+                                    dmrg.make_FCIDUMP_CASSCF(self.n_act_orb, 
+                                         occupied_J[self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,], 
+                                         occupied_fock_core[ self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied], 
+                                         self.E_core+self.Enuc+self.d_c, 
+                                         self.omega, 
+                                         core_int,
+                                        -np.sqrt(self.omega / 2)*self.d_cmo[self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied] )
+
+                                    dmrg.run_dmrg()
+                                    self.num_dmrg_runs += 1
+                        
+                                    print("DMRG completed, reading results.")
+                                    energy, rdm1, rdm2, rdm_pe, rdm_n, rdm_b = dmrg.read_dmrg_results()
+                                    print("DMRG Energies:")
+                                    for E in energy:
+                                        print("\t", E)
+
+                                    rdm_energies = list()
+                                    for i in range(len(energy)):
+                                        E = self.rdm_exact_energy_DMRG2( 
+                                                        occupied_J[self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,], 
+                                                        occupied_fock_core[ self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied], 
+                                                        self.d_cmo, 
+                                                        self.E_core+self.Enuc+self.d_c,
+                                                        rdm1[i], rdm2[i], rdm_pe[i], rdm_n[i], rdm_b[i])
+                        
+                                        rdm_energies.append(E)
+
+                                    print("DMRG RDM Energies:")
+                                    for E, E_ref in zip(rdm_energies, energy):
+                                        print("\t", E , " (ref: ", E_ref, "diff: ", E - E_ref, ")")
+                                        
+                                        if( abs(E - E_ref) > 1e-6 ):
+                                            print("Warning! Large difference between DMRG energy and RDM energy detected!")
+                                            
+                                            exit(1)
+
+                                    if(len(energy) >= self.davidson_roots):
+                                        eigenvals = energy[:self.davidson_roots]
+
+                                    else:
+                                        print("Not enough DMRG roots found!!! Going to use all I have (", len(energy),") -> Consider changing the MOLMPS input.")
+                                        self.davidson_roots = len(energy)
+
+
                                 old_avg_energy = new_avg_energy
                                 avg_energy = 0.0
                                 for i in range(self.davidson_roots):
@@ -3912,7 +4124,11 @@ class PFHamiltonianGenerator:
                                     avg_energy,
                                     flush = True
                                 )
-                                self.build_state_average_rdms(eigenvecs)
+
+                                if self.diag:
+                                    self.build_state_average_rdms(eigenvecs)
+                                else:
+                                    self.build_state_average_rdms_DMRG(rdm1, rdm2, rdm_pe, rdm_n, rdm_b)
 
                             print("Macroiteration", macroiteration,
                                     "old CI energy", old_avg_energy,
@@ -3923,147 +4139,151 @@ class PFHamiltonianGenerator:
 
                             if macroiteration > 0 and convergence == 1:
 
-                                self.CASSCFeigs = eigenvals
-                                self.CASSCFvecs = eigenvecs
 
-                                print(
-                                    "\nACTIVE PART OF DETERMINANTS THAT HAVE THE MOST IMPORTANT CONTRIBUTIONS"
-                                )
-                                Y = np.zeros(
-                                    self.n_act_a
-                                    * (self.n_act_orb - self.n_act_a + 1)
-                                    * 3,
-                                    dtype=np.int32,
-                                )
-                                c_graph(self.n_act_a, self.n_act_orb, Y)
-                                np1 = self.N_p + 1
-                                singlet_count = 0
-                                triplet_count = 0
-                                for i in range(eigenvecs.shape[0]):
-                                    total_spin = self.check_total_spin(
-                                        eigenvecs[i : (i + 1), :]
-                                    )
+                                if self.diag:
+                                    self.CASSCFeigs = eigenvals
+                                    self.CASSCFvecs = eigenvecs
+
                                     print(
-                                        "STATE",
-                                        i,
-                                        "ENERGY =",
-                                        eigenvals[i],
-                                        "<S^2>=",
-                                        total_spin,
-                                        "WEIGHT =",
-                                        self.weight[i],
-                                        end="",
+                                        "\nACTIVE PART OF DETERMINANTS THAT HAVE THE MOST IMPORTANT CONTRIBUTIONS"
                                     )
-                                    if np.abs(total_spin) < 1e-5:
-                                        singlet_count += 1
-                                        print("\tSINGLET", singlet_count)
-                                    elif np.abs(total_spin - 2.0) < 1e-5:
-                                        triplet_count += 1
-                                        print("\tTRIPLET", triplet_count)
-                                    elif np.abs(total_spin - 6.0) < 1e-5:
-                                        print("\tQUINTET")
-
-                                    # print("state",i, "energy =",theta[i])
-                                    print(
-                                        "        amplitude",
-                                        "      position",
-                                        "         most important determinants",
-                                        "             number of photon",
+                                    Y = np.zeros(
+                                        self.n_act_a
+                                        * (self.n_act_orb - self.n_act_a + 1)
+                                        * 3,
+                                        dtype=np.int32,
                                     )
-                                    index = np.argsort(np.abs(eigenvecs[i, :]))
-                                    # print(index)
-                                    Idet0 = (
-                                        index[eigenvecs.shape[1] - 1] % self.num_det
-                                    )  # determinant index of most significant contribution
-                                    photon_p0 = (
-                                        index[eigenvecs.shape[1] - 1] - Idet0
-                                    ) // self.num_det  # photon number block of determinant
-                                    Ib0 = Idet0 % self.num_alpha
-                                    Ia0 = Idet0 // self.num_alpha
-                                    a0 = c_index_to_string(
-                                        Ia0, self.n_act_a, self.n_act_orb, Y
-                                    )
-                                    b0 = c_index_to_string(
-                                        Ib0, self.n_act_a, self.n_act_orb, Y
-                                    )
-
-                                    alphalist = Determinant.obtBits2ObtIndexList(a0)
-                                    betalist = Determinant.obtBits2ObtIndexList(b0)
-
-                                    # only if i==0:
-                                    if i == 0:
-                                        a_ref = np.array(alphalist)
-                                        b_ref = np.array(betalist)
-
-                                    #for j in range(min(H_dim, 10)):
-                                    for j in range(H_dim):
-                                        Idet = (
-                                            index[eigenvecs.shape[1] - j - 1]
-                                            % self.num_det
+                                    c_graph(self.n_act_a, self.n_act_orb, Y)
+                                    np1 = self.N_p + 1
+                                    singlet_count = 0
+                                    triplet_count = 0
+                                    for i in range(eigenvecs.shape[0]):
+                                        total_spin = self.check_total_spin(
+                                            eigenvecs[i : (i + 1), :]
                                         )
-                                        photon_p = (
-                                            index[eigenvecs.shape[1] - j - 1] - Idet
-                                        ) // self.num_det
-                                        Ib = Idet % self.num_alpha
-                                        Ia = Idet // self.num_alpha
-                                        a = c_index_to_string(
-                                            Ia, self.n_act_a, self.n_act_orb, Y
+                                        print(
+                                            "STATE",
+                                            i,
+                                            "ENERGY =",
+                                            eigenvals[i],
+                                            "<S^2>=",
+                                            total_spin,
+                                            "WEIGHT =",
+                                            self.weight[i],
+                                            end="",
                                         )
-                                        b = c_index_to_string(
-                                            Ib, self.n_act_a, self.n_act_orb, Y
+                                        if np.abs(total_spin) < 1e-5:
+                                            singlet_count += 1
+                                            print("\tSINGLET", singlet_count)
+                                        elif np.abs(total_spin - 2.0) < 1e-5:
+                                            triplet_count += 1
+                                            print("\tTRIPLET", triplet_count)
+                                        elif np.abs(total_spin - 6.0) < 1e-5:
+                                            print("\tQUINTET")
+
+                                        # print("state",i, "energy =",theta[i])
+                                        print(
+                                            "        amplitude",
+                                            "      position",
+                                            "         most important determinants",
+                                            "             number of photon",
+                                        )
+                                        index = np.argsort(np.abs(eigenvecs[i, :]))
+                                        # print(index)
+                                        Idet0 = (
+                                            index[eigenvecs.shape[1] - 1] % self.num_det
+                                        )  # determinant index of most significant contribution
+                                        photon_p0 = (
+                                            index[eigenvecs.shape[1] - 1] - Idet0
+                                        ) // self.num_det  # photon number block of determinant
+                                        Ib0 = Idet0 % self.num_alpha
+                                        Ia0 = Idet0 // self.num_alpha
+                                        a0 = c_index_to_string(
+                                            Ia0, self.n_act_a, self.n_act_orb, Y
+                                        )
+                                        b0 = c_index_to_string(
+                                            Ib0, self.n_act_a, self.n_act_orb, Y
                                         )
 
-                                        alphalist = Determinant.obtBits2ObtIndexList(a)
-                                        betalist = Determinant.obtBits2ObtIndexList(b)
-                                        
-                                        # get weight of current configh
-                                        c_i = eigenvecs[i][index[eigenvecs.shape[1] - j - 1]]
-                                        
+                                        alphalist = Determinant.obtBits2ObtIndexList(a0)
+                                        betalist = Determinant.obtBits2ObtIndexList(b0)
+
+                                        # only if i==0:
                                         if i == 0:
-                                            a_curr = np.array(alphalist)
-                                            b_curr = np.array(betalist)
+                                            a_ref = np.array(alphalist)
+                                            b_ref = np.array(betalist)
 
-                                            #sum up all instances where the occupation of the current determinant differs from the reference for alpha and beta strings
-                                            a_diff_count = np.sum(a_ref != a_curr)
-                                            b_diff_count = np.sum(b_ref != b_curr)
-                                            
-                                            # sum of alpha and beta difference instances is the excitation rank
-                                            excitation_rank = a_diff_count + b_diff_count
-                                            # increment count of configurations with this excitation rank
-                                            self.casscf_config_count_by_rank[excitation_rank] += 1
-                                        
-                                            # accumulate sum of squared weights for this excitation rank
-                                            self.casscf_sum_squared_weight_by_rank[excitation_rank] += c_i ** 2
-                                    
-
-                                        inactive_list = list(
-                                            x for x in range(self.n_in_a)
-                                        )
-                                        alphalist2 = [
-                                            x + self.n_in_a for x in alphalist
-                                        ]
-                                        # alphalist2[0:0] = inactive_list
-                                        betalist2 = [x + self.n_in_a for x in betalist]
-                                        # betalist2[0:0] = inactive_list
-
-                                        # only print first 10
-                                        if j <= 10:
-                                            print(
-                                                "%20.12lf"
-                                                % (
-                                                    c_i
-                                                ),
-                                                "%9.3d"
-                                                % (index[eigenvecs.shape[1] - j - 1]),
-                                                "alpha",
-                                                alphalist2,
-                                                "   beta",
-                                                betalist2,
-                                                "%4.1d" % (photon_p),
-                                                "photon",
-                                                "excitation rank",
-                                                excitation_rank
+                                        #for j in range(min(H_dim, 10)):
+                                        for j in range(H_dim):
+                                            Idet = (
+                                                index[eigenvecs.shape[1] - j - 1]
+                                                % self.num_det
                                             )
+                                            photon_p = (
+                                                index[eigenvecs.shape[1] - j - 1] - Idet
+                                            ) // self.num_det
+                                            Ib = Idet % self.num_alpha
+                                            Ia = Idet // self.num_alpha
+                                            a = c_index_to_string(
+                                                Ia, self.n_act_a, self.n_act_orb, Y
+                                            )
+                                            b = c_index_to_string(
+                                                Ib, self.n_act_a, self.n_act_orb, Y
+                                            )
+
+                                            alphalist = Determinant.obtBits2ObtIndexList(a)
+                                            betalist = Determinant.obtBits2ObtIndexList(b)
+                                            
+                                            # get weight of current configh
+                                            c_i = eigenvecs[i][index[eigenvecs.shape[1] - j - 1]]
+                                            
+                                            if i == 0:
+                                                a_curr = np.array(alphalist)
+                                                b_curr = np.array(betalist)
+
+                                                #sum up all instances where the occupation of the current determinant differs from the reference for alpha and beta strings
+                                                a_diff_count = np.sum(a_ref != a_curr)
+                                                b_diff_count = np.sum(b_ref != b_curr)
+                                                
+                                                # sum of alpha and beta difference instances is the excitation rank
+                                                excitation_rank = a_diff_count + b_diff_count
+                                                # increment count of configurations with this excitation rank
+                                                self.casscf_config_count_by_rank[excitation_rank] += 1
+                                            
+                                                # accumulate sum of squared weights for this excitation rank
+                                                self.casscf_sum_squared_weight_by_rank[excitation_rank] += c_i ** 2
+                                        
+
+                                            inactive_list = list(
+                                                x for x in range(self.n_in_a)
+                                            )
+                                            alphalist2 = [
+                                                x + self.n_in_a for x in alphalist
+                                            ]
+                                            # alphalist2[0:0] = inactive_list
+                                            betalist2 = [x + self.n_in_a for x in betalist]
+                                            # betalist2[0:0] = inactive_list
+
+                                            # only print first 10
+                                            if j <= 10:
+                                                print(
+                                                    "%20.12lf"
+                                                    % (
+                                                        c_i
+                                                    ),
+                                                    "%9.3d"
+                                                    % (index[eigenvecs.shape[1] - j - 1]),
+                                                    "alpha",
+                                                    alphalist2,
+                                                    "   beta",
+                                                    betalist2,
+                                                    "%4.1d" % (photon_p),
+                                                    "photon",
+                                                    "excitation rank",
+                                                    excitation_rank
+                                            )
+                                else:
+                                    print("EXTERNAL DIAGOMALIZATION, CANNOT PRINT DETERMINANTS")
 
                                 print("OPTIMIZATION CONVERGED", flush=True)
                                 print("avg energy final", macroiteration, avg_energy)
@@ -4099,6 +4319,12 @@ class PFHamiltonianGenerator:
 
 
                                 break
+
+                            if not self.diag:
+                                #Quick hack for DMRG case where these have to be replaced by the exp vals -Mik
+                                #This will probably break stuff!!!!!!!!!
+                                eigenvecs = None
+
                             self.avg_energy = avg_energy
                             if macroiteration > 0 and self.n_in_a > 0:
                                 start1 = timer()
@@ -4107,36 +4333,6 @@ class PFHamiltonianGenerator:
                                 end1 = timer()
                                 print("internal optimization took", end1 - start1)
 
-                            ###print("LETS TEST THE TWO WAYS TO CALCULATE SECOND ORDER ENERGY AGAIN")
-                            ###A = np.zeros((rot_dim, rot_dim))
-                            ###G = np.zeros((self.n_occupied, self.n_occupied, rot_dim, rot_dim))
-                            ###print("initial e_core", self.E_core)
-                            ###self.build_intermediates(eigenvecs, A, G, True)
-                            ###A2 = np.zeros((rot_dim, rot_dim))
-                            ###G2 = np.zeros((self.n_occupied, self.n_occupied, rot_dim, rot_dim))
-                            ###self.build_intermediates2(eigenvecs, A2, G2, True)
-                            ###print("test second order energy and ci updated integrals")
-                            ###exact_t_energy = self.microiteration_exact_energy(self.U_delta, A, G)
-                            ###print("exact_energy from second order expansion", exact_t_energy + avg_energy)
-                            ###active_twoeint = np.zeros((self.n_act_orb, self.n_act_orb, self.n_act_orb, self.n_act_orb))
-                            ###active_fock_core = np.zeros((self.n_act_orb, self.n_act_orb))
-                            ###d_cmo = np.zeros((self.nmo, self.nmo))
-                            ###self.microiteration_ci_integrals_transform(self.U_delta, eigenvecs, d_cmo, active_fock_core, active_twoeint)
-                            ###active_one_e_energy = np.dot(active_fock_core.flatten(), self.D_tu_avg)
-                            ###active_two_e_energy = 0.5 * np.dot(active_twoeint.flatten(), self.D_tuvw_avg)
-                            ###active_one_pe_energy = -np.sqrt(self.omega/2) * np.dot(d_cmo[self.n_in_a:self.n_occupied,self.n_in_a:self.n_occupied].flatten(), self.Dpe_tu_avg)
-                            ###ci_dependent_energy = self.calculate_ci_dependent_energy(eigenvecs, d_cmo)
-                            ###sum_energy = (active_one_e_energy + active_two_e_energy + active_one_pe_energy + self.E_core +
-                            ###        self.Enuc + self.d_c + ci_dependent_energy)
-                            ###print("gfhgy",
-                            ###    "{:20.12f}".format(sum_energy),
-                            ###    "{:20.12f}".format(active_one_e_energy),
-                            ###    "{:20.12f}".format(active_two_e_energy),
-                            ###    "{:20.12f}".format(self.E_core),
-                            ###    "{:20.12f}".format(active_one_pe_energy),
-                            ###    "{:20.12f}".format(self.Enuc),
-                            ###)
-
                             np.set_printoptions(precision=14)
                             if macroiteration == 0:
                                 convergence_threshold = 1e-3
@@ -4144,15 +4340,14 @@ class PFHamiltonianGenerator:
                                 convergence_threshold = 1e-4
                             print("avg energy", macroiteration, self.avg_energy)
                             U0 = np.eye(self.nmo)
-                            # print("heyhey3",eigenvecs)
+
                             start1 = timer()
                             self.microiteration_optimization5(
                                 U0, eigenvecs, c_get_roots, convergence_threshold
                             )
                             end1 = timer()
                             print("microiteration took", end1 - start1)
-                            # print("heyhey",eigenvecs)
-                            # print("u2",self.U2)
+
                             print("full transformation test")
 
                             R = 0.5 * (self.U2 - self.U2.T)
@@ -4505,7 +4700,7 @@ class PFHamiltonianGenerator:
             self.rdm_root = 0
 
         # only need nact and nels if ci_level == "CAS"
-        if self.ci_level == "cas" or self.ci_level == "CAS":
+        if self.ci_level.lower() == "cas" or self.ci_level.lower() == "fcidump" or self.ci_level.lower() == "dmrg":
             if "nact_orbs" in cavity_dictionary:
                 self.n_act_orb = cavity_dictionary["nact_orbs"]
             else:
@@ -4550,7 +4745,7 @@ class PFHamiltonianGenerator:
             exit()
         if np.size(self.weight) > self.davidson_roots:
             print("the dimension of the weight array exceeds the number of roots")
-            exit()
+            exit() 
         elif np.size(self.weight) < self.davidson_roots:
             extra_dim = self.davidson_roots - np.size(self.weight)
             weight1 = np.full(extra_dim, 0.0)
@@ -4558,6 +4753,14 @@ class PFHamiltonianGenerator:
             self.weight = np.concatenate((self.weight, weight1))
         self.weight = self.weight / np.sum(self.weight)
         print("weight", self.weight)
+
+        #Mik DMRG options:
+        if "manual_ordering" in cavity_dictionary:
+            self.manual_ordering = cavity_dictionary["manual_ordering"]
+        else:
+            self.manual_ordering = [0]
+
+        
 
     def parseArrays(self, cqed_rhf_dict):
         # grab quantities from cqed_rhf_dict that apply to both number state and coherent state bases
@@ -4645,6 +4848,38 @@ class PFHamiltonianGenerator:
             # print("thrbf", np.allclose(temp,np.eye(wfn.nmo()), rtol=1e-14,atol=1e-14))
             # print(temp)
 
+        
+        #Nasty trick to make molden file writer work
+        wfn.occupation_a = lambda: psi4.core.Matrix.from_array(np.array(wfn.nalpha()*[1] + (wfn.nmo() - wfn.nalpha())*[0]).reshape((wfn.nmo(),1)))
+        wfn.occupation_b = lambda: psi4.core.Matrix.from_array(np.array(wfn.nbeta()*[1] + (wfn.nmo() - wfn.nbeta())*[0]).reshape((wfn.nmo(),1)))
+        #Write molden file for testing
+        psi4.driver.molden(wfn, "orbitals_orig.molden")
+
+        
+        
+        if len(self.manual_ordering) > 1:
+            size_order = len(self.manual_ordering)
+            C_temp = np.asarray(wfn.Ca())
+            #print(C_temp)
+            C_temp[:,:size_order] = C_temp[:,:size_order][:,self.manual_ordering]
+            
+            wfn_dict = psi4.core.Wavefunction.to_file(wfn)
+            # update wfn_dict with reordered orbitals 
+            wfn_dict["matrix"]["Ca"] = C_temp
+            wfn_dict["matrix"]["Cb"] = C_temp
+
+            # update wfn object
+            wfn = psi4.core.Wavefunction.from_file(wfn_dict)
+
+            # Grab data from wavfunction class
+            self.Ca = wfn.Ca()
+            # -Mik one el things would not be reordered
+            self.C = np.asarray(self.Ca)		
+            # -Mik dipole needs to be reordered too
+            self.d_cmo = np.dot(self.C.T, self.d_ao).dot(self.C)
+
+        
+
         # update wfn object
         wfn = psi4.core.Wavefunction.from_file(wfn_dict)
 
@@ -4705,6 +4940,12 @@ class PFHamiltonianGenerator:
 
         # Standard 1-e integrals, kinetic and electron-nuclear attraction
         self.H_1e_ao = self.T_ao + self.V_ao
+
+
+        #-Mik: inefficient but I am lazy to rewrite the FCIDUMP code
+        if self.ci_level.lower() == "dmrg" or self.ci_level.lower() == "fcidump":
+            self.q_mo = np.einsum("uf,vi,uv", self.C, self.C, self.q_PF_ao)
+
 
         if self.ignore_coupling == False and self.ignore_dse_terms == False:
             # cavity-specific 1-e integrals, including quadrupole and 1-e dipole integrals
@@ -6890,6 +7131,7 @@ class PFHamiltonianGenerator:
             self.fock_general[:rot_dim, :rot_dim]
             + off_diagonal_constant * self.d_cmo[:rot_dim, :rot_dim]
         )
+
         # end1   = timer()
         # print("build intermediate step 7_0", end1 - start1)
         # start1 = timer()
@@ -6912,12 +7154,15 @@ class PFHamiltonianGenerator:
             self.L[self.n_in_a :, :, :, :],
             optimize="optimal",
         )
+
         # end   = timer()
         # print("build intermediate step 8", end - start)
         # start = timer()
         G[: self.n_in_a, self.n_in_a : self.n_occupied, :, :] = G[
             self.n_in_a : self.n_occupied, : self.n_in_a, :, :
         ].transpose(1, 0, 3, 2)
+
+
 
         # end   = timer()
         # print("build intermediate step 9", end - start)
@@ -6928,6 +7173,8 @@ class PFHamiltonianGenerator:
             D_tu_avg,
             optimize="optimal",
         )
+
+        print(G[0,0,0,:])
         # end   = timer()
         # print("build intermediate step 10", end - start)
         # start = timer()
@@ -6942,9 +7189,11 @@ class PFHamiltonianGenerator:
             D_tuvw_avg,
             optimize="optimal",
         )
+
         # end   = timer()
         # print("build intermediate step 11", end - start)
         # start = timer()
+
         G[self.n_in_a :, self.n_in_a :, :, :] += 2.0 * np.einsum(
             "vwrs,tvuw->turs",
             self.K[
@@ -6956,15 +7205,10 @@ class PFHamiltonianGenerator:
             D_tuvw_avg,
             optimize="optimal",
         )
+
         # end   = timer()
         # print("build intermediate step 12", end - start)
         # start = timer()
-        G[self.n_in_a :, self.n_in_a :, :, :] += -np.sqrt(self.omega / 2) * np.einsum(
-            "rs,tu->turs",
-            self.d_cmo[:rot_dim, :rot_dim],
-            Dpe_tu_avg,
-            optimize="optimal",
-        )
         # end   = timer()
         # print("build intermediate step 13", end - start)
         # for r in range(self.nmo):
@@ -7135,6 +7379,16 @@ class PFHamiltonianGenerator:
         #        self.Dpe_tu_avg.reshape((self.n_act_orb,self.n_act_orb)))
 
     def calculate_ci_dependent_energy(self, eigenvecs, occupied_d_cmo):
+        if eigenvecs is None: # DMRG hack
+            if self.diag:
+                raise RuntimeError("Unintended case in calculate_ci_dependent_energy: eigenvecs is None and diag is True")
+        
+            ci_dependent_energy = 0.0
+            ci_dependent_energy += self.omega * self.n[0,0]
+            ci_dependent_energy += 2* np.sqrt(self.omega/2)* (self.d_exp - 2.0 * np.einsum("ii->", self.d_cmo[: self.n_in_a, : self.n_in_a])) * self.n_b[0, 0]
+            return ci_dependent_energy
+        
+
         off_diagonal_constant_energy = 0.0
         photon_energy = 0.0
         d_diag = 0.0
@@ -7200,9 +7454,18 @@ class PFHamiltonianGenerator:
 
         # ci_dependent_energy = (off_diagonal_constant_energy + photon_energy) / self.davidson_roots
         ci_dependent_energy = off_diagonal_constant_energy + photon_energy
+        
         return ci_dependent_energy
 
     def calculate_off_diagonal_photon_constant(self, eigenvecs):
+        if eigenvecs is None: # DMRG hack
+            if self.diag:
+                raise RuntimeError("Unintended case in calculate_off_diagonal_photon_constant: eigenvecs is None and diag is True")
+        
+            off_diagonal_photon_constant =  - 2* np.sqrt(self.omega/2) * self.n_b[0, 0]
+            print("off_diagonal_photon_constant (DMRG hack) =", off_diagonal_photon_constant)
+            return off_diagonal_photon_constant
+
         off_diagonal_constant = 0.0
         np1 = self.N_p + 1
         for i in range(self.davidson_roots):
@@ -7248,6 +7511,7 @@ class PFHamiltonianGenerator:
                         )
                     )
 
+        print("off_diagonal_photon_constant =", off_diagonal_constant)
         return off_diagonal_constant
 
     def build_unitary_matrix(self, Rai, Rvi, Rva):
@@ -8832,7 +9096,9 @@ class PFHamiltonianGenerator:
         rot_dim = self.n_occupied
         microiteration = 0
         np1 = self.N_p + 1
-        H_dim = self.num_alpha * self.num_alpha * np1
+        
+        if self.diag:
+            H_dim = self.num_alpha * self.num_alpha * np1
 
         A1 = np.zeros((rot_dim, rot_dim))
         G1 = np.zeros((self.n_occupied, self.n_occupied, rot_dim, rot_dim))
@@ -8899,7 +9165,7 @@ class PFHamiltonianGenerator:
 
             # print(hessian_tilde_ai)
             mu1, w1 = np.linalg.eigh(hessian_tilde_ai)
-            # print("eigenvalue of active-inactive hessian", mu1)
+            #print("eigenvalue of active-inactive hessian", mu1)
             #print("eigenvalue of the reduced hessian", mu1)
             print(
                 "dot product of gradient and first eigenvector of hessian",
@@ -9478,74 +9744,136 @@ class PFHamiltonianGenerator:
                 self.occupied_J3 = self.occupied_J.reshape(
                     self.n_occupied * self.n_occupied, self.n_occupied * self.n_occupied
                 )
-                self.H_diag3 = np.zeros(H_dim)
-                c_H_diag_cas_spin(
-                    self.occupied_fock_core,
-                    self.occupied_J3,
-                    self.H_diag3,
-                    self.N_p,
-                    self.num_alpha,
-                    self.nmo,
-                    self.n_act_a,
-                    self.n_act_orb,
-                    self.n_in_a,
-                    self.E_core,
-                    self.omega,
-                    self.Enuc,
-                    self.d_c,
-                    self.Y,
-                    self.target_spin,
-                )
-                # self.J[:,:,:self.n_occupied, :self.n_occupied] = occupied_J[:,:,:,:]
-                # self.K[:,:,:self.n_occupied, :self.n_occupied] = occupied_K[:,:,:,:]
-                # self.H_spatial2[:self.n_occupied, :self.n_occupied] = occupied_h1[:,:]
-                # self.d_cmo[:self.n_occupied, :self.n_occupied] = occupied_d_cmo[:,:]
-                current_energy = current_energy + exact_energy
-                print("wezn", current_energy, flush=True)
-                d_diag = 2.0 * np.einsum(
-                    "ii->", self.occupied_d_cmo[: self.n_in_a, : self.n_in_a]
-                )
 
-                # self.constdouble = np.zeros(6)
-                # self.constdouble[0] = self.Enuc
-                # if self.ignore_dse_terms:
-                #    self.constdouble[1] = 0.0
-                # else:
-                #    self.constdouble[1] = self.d_c
-                # self.constdouble[2] = self.omega
-                self.constdouble[3] = self.d_exp - d_diag
-                self.constdouble[4] = 1e-5
-                self.constdouble[5] = self.E_core
-                self.constint[8] = 5
-                eigenvals = np.zeros((self.davidson_roots))
-                # eigenvecs = np.zeros((self.davidson_roots, H_dim))
-                # eigenvecs[:,:] = 0.0
-                #self.occupied_J3 = self.occupied_J.reshape(
-                #    self.n_occupied * self.n_occupied, self.n_occupied * self.n_occupied
-                #)
-                c_get_roots(
-                    self.gkl2,
-                    self.occupied_J3,
-                    self.occupied_d_cmo,
-                    self.H_diag3,
-                    self.S_diag,
-                    self.S_diag_projection,
-                    eigenvals,
-                    eigenvecs,
-                    self.table,
-                    self.table_creation,
-                    self.table_annihilation,
-                    self.b_array,
-                    self.constint,
-                    self.constdouble,
-                    self.index_Hdiag,
-                    True,
-                    self.target_spin,
-                )
+                if self.diag:
+                    self.H_diag3 = np.zeros(H_dim)
+                    c_H_diag_cas_spin(
+                        self.occupied_fock_core,
+                        self.occupied_J3,
+                        self.H_diag3,
+                        self.N_p,
+                        self.num_alpha,
+                        self.nmo,
+                        self.n_act_a,
+                        self.n_act_orb,
+                        self.n_in_a,
+                        self.E_core,
+                        self.omega,
+                        self.Enuc,
+                        self.d_c,
+                        self.Y,
+                        self.target_spin,
+                    )
+                    # self.J[:,:,:self.n_occupied, :self.n_occupied] = occupied_J[:,:,:,:]
+                    # self.K[:,:,:self.n_occupied, :self.n_occupied] = occupied_K[:,:,:,:]
+                    # self.H_spatial2[:self.n_occupied, :self.n_occupied] = occupied_h1[:,:]
+                    # self.d_cmo[:self.n_occupied, :self.n_occupied] = occupied_d_cmo[:,:]
+                    current_energy = current_energy + exact_energy
+                    print("wezn", current_energy, flush=True)
+                    d_diag = 2.0 * np.einsum(
+                        "ii->", self.occupied_d_cmo[: self.n_in_a, : self.n_in_a]
+                    )
 
-                current_residual = self.constdouble[4]
-                print("current CI residual", current_residual)
-                print("CI convergence check", self.constint[8])
+                    # self.constdouble = np.zeros(6)
+                    # self.constdouble[0] = self.Enuc
+                    # if self.ignore_dse_terms:
+                    #    self.constdouble[1] = 0.0
+                    # else:
+                    #    self.constdouble[1] = self.d_c
+                    # self.constdouble[2] = self.omega
+                    self.constdouble[3] = self.d_exp - d_diag
+                    self.constdouble[4] = 1e-5
+                    self.constdouble[5] = self.E_core
+                    self.constint[8] = self.davidson_maxiter
+                    eigenvals = np.zeros((self.davidson_roots))
+                    # eigenvecs = np.zeros((self.davidson_roots, H_dim))
+                    # eigenvecs[:,:] = 0.0
+                    #self.occupied_J3 = self.occupied_J.reshape(
+                    #    self.n_occupied * self.n_occupied, self.n_occupied * self.n_occupied
+                    #)
+                    c_get_roots(
+                        self.gkl2,
+                        self.occupied_J3,
+                        self.occupied_d_cmo,
+                        self.H_diag3,
+                        self.S_diag,
+                        self.S_diag_projection,
+                        eigenvals,
+                        eigenvecs,
+                        self.table,
+                        self.table_creation,
+                        self.table_annihilation,
+                        self.b_array,
+                        self.constint,
+                        self.constdouble,
+                        self.index_Hdiag,
+                        True,
+                        self.target_spin,
+                    )
+
+                    current_residual = self.constdouble[4]
+                    print("current CI residual", current_residual)
+                    print("CI convergence check", self.constint[8])
+
+
+
+                else:
+                    print("start DMRG calculation using the external MOLMPS program")
+
+                    E_core = 0.0
+                    E_core += np.einsum("jj->", self.occupied_h1[: self.n_in_a, : self.n_in_a])
+                    E_core += np.einsum("jj->", self.occupied_fock_core[: self.n_in_a, : self.n_in_a])
+                
+                    core_int  = -2*np.sqrt(self.omega / 2)*np.einsum("jj->", occupied_d_cmo[: self.n_in_a, : self.n_in_a])
+                    core_int +=  np.sqrt(self.omega / 2)*self.d_exp
+                    dmrg.make_FCIDUMP_CASSCF(self.n_act_orb, 
+                                            self.occupied_J[self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,], 
+                                            self.occupied_fock_core[ self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied], 
+                                            E_core+self.Enuc+self.d_c, 
+                                            self.omega, 
+                                            core_int,
+                                            -np.sqrt(self.omega / 2)*self.occupied_d_cmo[self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied] )
+
+                    dmrg.run_dmrg()
+                    self.num_dmrg_runs += 1
+                            
+                    print("DMRG completed, reading results.")
+                    energy, rdm1, rdm2, rdm_pe, rdm_n, rdm_b = dmrg.read_dmrg_results()
+                    print("DMRG Energies:")
+                    for E in energy:
+                        print("\t", E)
+
+                    print(rdm1[0].shape)
+                    print(self.occupied_d_cmo.shape)
+                    print(self.n_in_a, " ", self.n_occupied)
+
+
+                    rdm_energies = list()
+                    for i in range(len(energy)):
+                        E = self.rdm_exact_energy_DMRG2( 
+                                        self.occupied_J[self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,], 
+                                        self.occupied_fock_core[ self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied], 
+                                        self.occupied_d_cmo,
+                                        E_core+self.Enuc+self.d_c,
+                                        rdm1[i], rdm2[i], rdm_pe[i], rdm_n[i], rdm_b[i])
+                        
+                        rdm_energies.append(E)
+
+                    print("DMRG RDM Energies:")
+                    for E, E_ref in zip(rdm_energies, energy):
+                        print("\t", E , " (ref: ", E_ref, "diff: ", E - E_ref, ")")
+                        if( abs(E - E_ref) > 1e-6 ):
+                            print("Warning! Large difference between DMRG energy and RDM energy detected!")
+                            print("internal_optimization3")
+                            exit(1)
+
+                    if(len(energy) >= self.davidson_roots):
+                        eigenvals = energy[:self.davidson_roots]
+
+                    else:
+                        print("Not enough DMRG roots found!!! Going to use all I have (", len(energy),") -> Consider changing the MOLMPS input.")
+                        self.davidson_roots = len(energy)
+
                 avg_energy = 0.0
                 for i in range(self.davidson_roots):
                     avg_energy += self.weight[i] * eigenvals[i]
@@ -9563,7 +9891,14 @@ class PFHamiltonianGenerator:
                     #exact_energy / predicted_energy,
                     flush=True,
                 )
-                self.build_state_average_rdms(eigenvecs)
+                
+
+                if self.diag:
+                    self.build_state_average_rdms(eigenvecs)
+                else:
+                    self.build_state_average_rdms_DMRG(rdm1, rdm2, rdm_pe, rdm_n, rdm_b)
+
+
                 if predicted_energy != 0:
                     ratio = exact_energy / predicted_energy
                     print("current ratio", ratio)
@@ -9618,6 +9953,7 @@ class PFHamiltonianGenerator:
                     self.d_c,
                 )
 
+
                 self.build_intermediates_internal(
                     eigenvecs,
                     A1,
@@ -9666,7 +10002,7 @@ class PFHamiltonianGenerator:
             print(gradient_norm, current_residual)
             if (
                 #gradient_norm < 1e-4 and current_residual < 1e-5
-                gradient_norm < 1e-4 and self.constint[8] == 0
+                gradient_norm < 1e-4 and (not self.diag or self.constint[8] == 0)
             ) or microiteration == 20:
                 print("internal rotation converged!")
                 # print("qims", np.allclose(self.J, self.J_temp, rtol=1e-14,atol=1e-14))
@@ -9907,6 +10243,44 @@ class PFHamiltonianGenerator:
 
                     # self.D_tu_avg[tu] = dum2/2.0
                     # self.D_tu_avg[ut] = dum2/2.0
+
+    def build_state_average_rdms_DMRG(self , D_tu, D_tuvw, Dpe_tu, n, n_b):
+        self.D_tu_avg = np.zeros(D_tu[0].shape)
+        self.Dpe_tu_avg = np.zeros(Dpe_tu[0].shape)
+        self.D_tuvw_avg = np.zeros(D_tuvw[0].shape)
+        self.n = np.zeros(n[0].shape)
+        self.n_b = np.zeros(n_b[0].shape)
+
+        for i in range(self.davidson_roots):
+            self.D_tu_avg += self.weight[i] * D_tu[i]
+            self.D_tuvw_avg += self.weight[i] * D_tuvw[i]
+            self.Dpe_tu_avg += self.weight[i] * Dpe_tu[i]
+            self.n += self.weight[i] * n[i]
+            self.n_b += self.weight[i] * n_b[i]
+
+        self.D_tu_avg = self.D_tu_avg.flatten()
+        self.Dpe_tu_avg = self.Dpe_tu_avg.flatten()
+        self.D_tuvw_avg = self.D_tuvw_avg.flatten()
+
+        ###not sure if needed, but used in the CI case and I get different results otherwise
+        ###symmetrize 2-rdm
+        for t in range(self.n_act_orb):
+            for u in range(t, self.n_act_orb):
+                tu = t * self.n_act_orb + u
+                ut = u * self.n_act_orb + t
+                for vw in range(self.n_act_orb * self.n_act_orb):
+                    dum = (
+                        self.D_tuvw_avg[tu * self.n_act_orb * self.n_act_orb + vw]
+                        + self.D_tuvw_avg[ut * self.n_act_orb * self.n_act_orb + vw]
+                    )
+                    # dum2 = self.D_tu_avg[tu] + self.D_tu_avg[tu]
+                    self.D_tuvw_avg[tu * self.n_act_orb * self.n_act_orb + vw] = (
+                        dum / 2.0
+                    )
+                    self.D_tuvw_avg[ut * self.n_act_orb * self.n_act_orb + vw] = (
+                        dum / 2.0
+                    )
+
 
     def build_sigma_reduced(self, U, A, G, step):
         self.reduced_hessian2 = np.zeros((self.index_map_size, self.index_map_size))
@@ -10508,7 +10882,7 @@ class PFHamiltonianGenerator:
 
 
     def microiteration_ci_integrals_transform(
-        self, U, eigenvecs, d_cmo, active_fock_core, active_twoeint
+        self, U, d_cmo, active_fock_core, active_twoeint
     ):
         # print("test U2")
         # print(U)
@@ -10821,6 +11195,104 @@ class PFHamiltonianGenerator:
         #    "{:20.12f}".format(self.Enuc),
         # )
         return sum_energy
+
+
+    def rdm_exact_energy_DMRG(self, J, K, h1, d_cmo, rdm1, rdm2, rdm_pe, rdm_p_n, rdm_p_b):
+
+        active_twoeint = J[
+            self.n_in_a : self.n_occupied,
+            self.n_in_a : self.n_occupied,
+            self.n_in_a : self.n_occupied,
+            self.n_in_a : self.n_occupied,
+        ]
+        fock_core = copy.deepcopy(h1)
+        fock_core += 2.0 * np.einsum("jjrs->rs", J[: self.n_in_a, : self.n_in_a, :, :])
+        fock_core -= np.einsum("jjrs->rs", K[: self.n_in_a, : self.n_in_a, :, :])
+
+        E_core = 0.0
+        E_core += np.einsum("jj->", h1[: self.n_in_a, : self.n_in_a])
+        E_core += np.einsum("jj->", fock_core[: self.n_in_a, : self.n_in_a])
+
+        # print(eigenvecs)
+        active_fock_core = np.zeros((self.n_act_orb, self.n_act_orb))
+        active_fock_core[:, :] = fock_core[
+            self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied
+        ]
+        active_one_e_energy = np.dot(active_fock_core.flatten(), rdm1.flatten())
+        active_two_e_energy = 0.5 * np.dot(active_twoeint.flatten(), rdm2.flatten())
+        active_one_pe_energy = -np.sqrt(self.omega / 2) * np.dot(
+            d_cmo[
+                self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied
+            ].flatten(),
+            rdm_pe.flatten(),
+        )
+
+        photonic_energy = 0.0
+        photonic_energy += self.omega * rdm_p_n[0, 0]
+        photonic_energy2 = 0.0
+        photonic_energy2 += - 2* np.sqrt(self.omega/2)* (self.d_exp - 2.0 * np.einsum("ii->", self.d_cmo[: self.n_in_a, : self.n_in_a])) * rdm_p_b[0, 0]
+
+
+        sum_energy = (
+            active_one_e_energy
+            + active_two_e_energy
+            + active_one_pe_energy
+            + E_core
+            + self.Enuc
+            + self.d_c
+            + photonic_energy
+            + photonic_energy2
+        )
+        print("sum energy",
+           "{:20.12f}".format(sum_energy),
+           "{:20.12f}".format(active_one_e_energy),
+           "{:20.12f}".format(active_two_e_energy),
+           "{:20.12f}".format(E_core + self.Enuc + self.d_c),
+           "{:20.12f}".format(active_one_pe_energy),
+           "{:20.12f}".format(photonic_energy),
+           "{:20.12f}".format(photonic_energy2),
+           "{:20.12f}".format(self.Enuc),
+        )
+        return sum_energy
+    
+
+    def rdm_exact_energy_DMRG2(self, two_el, one_el, d_cmo, E_core, rdm1, rdm2, rdm_pe, rdm_p_n, rdm_p_b):
+
+
+        active_one_e_energy = np.dot(one_el.flatten(), rdm1.flatten())
+        active_two_e_energy = 0.5 * np.dot(two_el.flatten(), rdm2.flatten())
+        active_one_pe_energy = np.dot(
+            -np.sqrt(self.omega/2)*d_cmo[
+                self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied
+            ].flatten(),
+            rdm_pe.flatten(),
+        )
+
+        photonic_energy = 0.0
+        photonic_energy += self.omega * rdm_p_n[0, 0]
+        photonic_energy2 = 0.0
+        photonic_energy2 += 2*np.sqrt(self.omega/2)* (self.d_exp - 2.0 * np.einsum("ii->", d_cmo[: self.n_in_a, : self.n_in_a])) * rdm_p_b[0, 0]
+
+
+        sum_energy = (
+            active_one_e_energy
+            + active_two_e_energy
+            + active_one_pe_energy
+            + E_core
+            + photonic_energy
+            + photonic_energy2
+        )
+        print("sum energy",
+           "{:20.12f}".format(sum_energy),
+           "{:20.12f}".format(active_one_e_energy),
+           "{:20.12f}".format(active_two_e_energy),
+           "{:20.12f}".format(E_core),
+           "{:20.12f}".format(active_one_pe_energy),
+           "{:20.12f}".format(photonic_energy),
+           "{:20.12f}".format(photonic_energy2),
+        )
+        return sum_energy
+    
 
     def energy_function(self, step):
         Rai = np.zeros((self.n_act_orb, self.n_in_a))
@@ -11707,7 +12179,7 @@ class PFHamiltonianGenerator:
                     d_cmo[:, :] = 0.0
 
                     self.microiteration_ci_integrals_transform(
-                        self.U2, eigenvecs, d_cmo, active_fock_core, active_twoeint
+                        self.U2, d_cmo, active_fock_core, active_twoeint
                     )
                     active_one_e_energy = np.dot(
                         active_fock_core.flatten(), self.D_tu_avg
@@ -12323,7 +12795,7 @@ class PFHamiltonianGenerator:
                     d_cmo[:, :] = 0.0
 
                     self.microiteration_ci_integrals_transform(
-                        self.U2, eigenvecs, d_cmo, active_fock_core, active_twoeint
+                        self.U2, d_cmo, active_fock_core, active_twoeint
                     )
                     active_one_e_energy = np.dot(
                         active_fock_core.flatten(), self.D_tu_avg
@@ -12959,7 +13431,7 @@ class PFHamiltonianGenerator:
                     d_cmo[:, :] = 0.0
 
                     self.microiteration_ci_integrals_transform(
-                        self.U2, eigenvecs, d_cmo, active_fock_core, active_twoeint
+                        self.U2, d_cmo, active_fock_core, active_twoeint
                     )
                     active_one_e_energy = np.dot(
                         active_fock_core.flatten(), self.D_tu_avg
@@ -13687,7 +14159,7 @@ class PFHamiltonianGenerator:
                     d_cmo[:, :] = 0.0
                     start1 = timer()
                     self.microiteration_ci_integrals_transform(
-                        self.U2, eigenvecs, d_cmo, active_fock_core, active_twoeint
+                        self.U2, d_cmo, active_fock_core, active_twoeint
                     )
                     end1 = timer()
                     print("second order integral transformation took", end1 - start1)
@@ -13880,7 +14352,11 @@ class PFHamiltonianGenerator:
         trust_radius = 0.4
         rot_dim = self.nmo
         np1 = self.N_p + 1
-        H_dim = self.num_alpha * self.num_alpha * np1
+
+        if self.diag:
+            H_dim = self.num_alpha * self.num_alpha * np1
+
+
         A = np.zeros((rot_dim, rot_dim))
         G = np.zeros((self.n_occupied, self.n_occupied, rot_dim, rot_dim))
         # A2 = np.zeros((rot_dim, rot_dim))
@@ -13921,7 +14397,7 @@ class PFHamiltonianGenerator:
             G[:, :, :, :] = 0.0
             start = timer()
             self.build_intermediates(eigenvecs, A, G, True)
-            #G_blocks = self.build_intermediates_with_blocks(eigenvecs, A, G, True)
+
             end = timer()
             print("build intermediates took", end - start)
             # A2[:,:] = 0.0
@@ -14021,6 +14497,7 @@ class PFHamiltonianGenerator:
             reduced_hessian_diagonal = np.zeros(self.index_map_size)
             start = timer()
             self.build_hessian_diagonal(self.U2, G, A_tilde2)
+
             end = timer()
             print("build hessian diagonal took", end - start)
             reduced_hessian = np.zeros((self.index_map_size, self.index_map_size))
@@ -14209,6 +14686,7 @@ class PFHamiltonianGenerator:
                         alpha_u = (
                             delta_u + np.linalg.norm(reduced_gradient) * trust_radius
                         )
+                        
                         alpha_l = 0
                         count10 = 0
                         # beta = min(0, alpha_u)
@@ -15260,7 +15738,7 @@ class PFHamiltonianGenerator:
                     d_cmo[:, :] = 0.0
                     start1 = timer()
                     self.microiteration_ci_integrals_transform(
-                        self.U2, eigenvecs, d_cmo, active_fock_core, active_twoeint
+                        self.U2, d_cmo, active_fock_core, active_twoeint
                     )
                     end1 = timer()
                     print("second order integral transformation took", end1 - start1)
@@ -15328,7 +15806,10 @@ class PFHamiltonianGenerator:
                 self.n_in_a : self.n_occupied,
                 self.n_in_a : self.n_occupied,
             ] = copy.deepcopy(active_twoeint)
-            self.H_diag3 = np.zeros(H_dim)
+
+            if self.diag:
+                self.H_diag3 = np.zeros(H_dim)
+            
             occupied_fock_core = np.zeros((self.n_occupied, self.n_occupied))
             occupied_fock_core[
                 self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied
@@ -15355,61 +15836,120 @@ class PFHamiltonianGenerator:
             #    "{:20.12f}".format(self.Enuc),
             #    flush = True
             # )
-            occupied_J = occupied_J.reshape(
-                self.n_occupied * self.n_occupied, self.n_occupied * self.n_occupied
-            )
 
-            c_H_diag_cas_spin(
-                occupied_fock_core,
-                occupied_J,
-                self.H_diag3,
-                self.N_p,
-                self.num_alpha,
-                self.nmo,
-                self.n_act_a,
-                self.n_act_orb,
-                self.n_in_a,
-                self.E_core2,
-                self.omega,
-                self.Enuc,
-                self.d_c,
-                self.Y,
-                self.target_spin,
-            )
-            d_diag = 2.0 * np.einsum("ii->", d_cmo[: self.n_in_a, : self.n_in_a])
-            self.constdouble[3] = self.d_exp - d_diag
-            self.constdouble[4] = 1e-9
-            self.constdouble[5] = self.E_core2
-            self.constint[8] = 5 
-            print("number of CI iteration", self.constint[8])
-            eigenvals = np.zeros((self.davidson_roots))
-            # eigenvecs = np.zeros((self.davidson_roots, H_dim))
-            # eigenvecs[:,:] = 0.0
-            # print("heyhey5", eigenvecs)
-            c_get_roots(
-                gkl2,
-                occupied_J,
-                occupied_d_cmo,
-                self.H_diag3,
-                self.S_diag,
-                self.S_diag_projection,
-                eigenvals,
-                eigenvecs,
-                self.table,
-                self.table_creation,
-                self.table_annihilation,
-                self.b_array,
-                self.constint,
-                self.constdouble,
-                self.index_Hdiag,
-                True,
-                self.target_spin,
-            )
-            end = timer()
-            print("CI step took", end - start)
+            if self.diag:
+                
+                occupied_J = occupied_J.reshape(
+                    self.n_occupied * self.n_occupied, self.n_occupied * self.n_occupied
+                )
+
+
+                c_H_diag_cas_spin(
+                    occupied_fock_core,
+                    occupied_J,
+                    self.H_diag3,
+                    self.N_p,
+                    self.num_alpha,
+                    self.nmo,
+                    self.n_act_a,
+                    self.n_act_orb,
+                    self.n_in_a,
+                    self.E_core2,
+                    self.omega,
+                    self.Enuc,
+                    self.d_c,
+                    self.Y,
+                    self.target_spin,
+                )
+                d_diag = 2.0 * np.einsum("ii->", d_cmo[: self.n_in_a, : self.n_in_a])
+                self.constdouble[3] = self.d_exp - d_diag
+                self.constdouble[4] = 1e-9
+                self.constdouble[5] = self.E_core2
+                self.constint[8] = self.davidson_maxiter 
+                print("number of CI iteration", self.constint[8])
+                eigenvals = np.zeros((self.davidson_roots))
+                # eigenvecs = np.zeros((self.davidson_roots, H_dim))
+                # eigenvecs[:,:] = 0.0
+                # print("heyhey5", eigenvecs)
+                c_get_roots(
+                    gkl2,
+                    occupied_J,
+                    occupied_d_cmo,
+                    self.H_diag3,
+                    self.S_diag,
+                    self.S_diag_projection,
+                    eigenvals,
+                    eigenvecs,
+                    self.table,
+                    self.table_creation,
+                    self.table_annihilation,
+                    self.b_array,
+                    self.constint,
+                    self.constdouble,
+                    self.index_Hdiag,
+                    True,
+                    self.target_spin,
+                )
+                end = timer()
+                print("CI step took", end - start)
+                
+                current_residual = self.constdouble[4]
+
+            else:
+                print("start DMRG calculation using the external MOLMPS program")
+                E_core = 0.0
+                E_core += 2*np.einsum("ii", occupied_fock_core[: self.n_in_a, : self.n_in_a])
+
+                core_int  = -2*np.sqrt(self.omega / 2)*np.einsum("jj->", d_cmo[: self.n_in_a, : self.n_in_a])
+                core_int +=  np.sqrt(self.omega / 2)*self.d_exp
+                dmrg.make_FCIDUMP_CASSCF(self.n_act_orb, 
+                                         active_twoeint,
+                                         active_fock_core, 
+                                         self.E_core2+self.Enuc+self.d_c, 
+                                         self.omega, 
+                                         core_int,
+                                        -np.sqrt(self.omega / 2)*d_cmo[self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied] )
+
+                dmrg.run_dmrg()
+                self.num_dmrg_runs += 1
+                        
+                print("DMRG completed, reading results.")
+                energy, rdm1, rdm2, rdm_pe, rdm_n, rdm_b = dmrg.read_dmrg_results()
+                print("DMRG Energies:")
+                for E in energy:
+                    print("\t", E)
+
+                rdm_energies = list()
+                for i in range(len(energy)):
+                    E = self.rdm_exact_energy_DMRG2( 
+                                    active_twoeint,
+                                    active_fock_core,
+                                    d_cmo, 
+                                    self.E_core2+self.Enuc+self.d_c,
+                                    rdm1[i], rdm2[i], rdm_pe[i], rdm_n[i], rdm_b[i])
+                    
+                    rdm_energies.append(E)
+
+                print("DMRG RDM Energies:")
+                for E, E_ref in zip(rdm_energies, energy):
+                    print("\t", E , " (ref: ", E_ref, "diff: ", E - E_ref, ")")
+                    
+                    if( abs(E - E_ref) > 1e-6 ):
+                        print("Warning! Large difference between DMRG energy and RDM energy detected!")
+                        print("internal_optimization5, dmrg run #", self.num_dmrg_runs)
+                        #exit(1)
+
+                if(len(energy) >= self.davidson_roots):
+                    eigenvals = energy[:self.davidson_roots]
+
+                else:
+                    print("Not enough DMRG roots found!!! Going to use all I have (", len(energy),") -> Consider changing the MOLMPS input.")
+                    self.davidson_roots = len(energy)
+
+
+
 
             # print("current residual", self.constdouble[4])
-            current_residual = self.constdouble[4]
             avg_energy = 0.0
             for i in range(self.davidson_roots):
                 avg_energy += self.weight[i] * eigenvals[i]
@@ -15423,26 +15963,56 @@ class PFHamiltonianGenerator:
             #current_energy = avg_energy
 
             start = timer()
-            self.build_state_average_rdms(eigenvecs)
+            
+            if self.diag:
+                self.build_state_average_rdms(eigenvecs)
+            else:
+                self.build_state_average_rdms_DMRG(rdm1, rdm2, rdm_pe, rdm_n, rdm_b)
             end = timer()
             print("building RDM took", end - start)
-            #active_one_e_energy = np.dot(active_fock_core.flatten(), self.D_tu_avg)
-            #active_two_e_energy = 0.5 * np.dot(active_twoeint.flatten(), self.D_tuvw_avg)
-            #active_one_pe_energy = -np.sqrt(self.omega/2) * np.dot(d_cmo[self.n_in_a:self.n_occupied,self.n_in_a:self.n_occupied].flatten(), self.Dpe_tu_avg)
-            #ci_dependent_energy = self.calculate_ci_dependent_energy(eigenvecs, d_cmo)
-            #sum_energy = (active_one_e_energy + active_two_e_energy + active_one_pe_energy + self.E_core2 +
+
+            # active_one_e_energy = np.dot(active_fock_core.flatten(), self.D_tu_avg)
+            # active_two_e_energy = 0.5 * np.dot(active_twoeint.flatten(), self.D_tuvw_avg)
+            # active_one_pe_energy = -np.sqrt(self.omega/2) * np.dot(d_cmo[self.n_in_a:self.n_occupied,self.n_in_a:self.n_occupied].flatten(), self.Dpe_tu_avg)
+            # if self.diag:
+            #     ci_dependent_energy = self.calculate_ci_dependent_energy(eigenvecs, d_cmo)
+            # else:
+            #     ci_dependent_energy = self.omega * self.n
+            #     ci_dependent_energy += 2* np.sqrt(self.omega/2)* (self.d_exp - 2.0 * np.einsum("ii->", self.d_cmo[: self.n_in_a, : self.n_in_a])) * self.n_b
+            
+            # sum_energy = (active_one_e_energy + active_two_e_energy + active_one_pe_energy + self.E_core2 +
             #       self.Enuc + self.d_c + ci_dependent_energy)
-            #print("RDM_energy    active_one    active_two E_core active_pe_energy ci_dependent_energy E_nuc")
-            #print("gfhgy",
-            #   "{:20.12f}".format(sum_energy),
-            #   "{:20.12f}".format(active_one_e_energy),
-            #   "{:20.12f}".format(active_two_e_energy),
-            #   "{:20.12f}".format(self.E_core2),
-            #   "{:20.12f}".format(active_one_pe_energy),
-            #   "{:20.12f}".format(ci_dependent_energy),
-            #   "{:20.12f}".format(self.Enuc),
-            #   flush = True
-            #)
+            # print("RDM_energy    active_one    active_two E_core active_pe_energy ci_dependent_energy E_nuc")
+            
+            # if self.diag:
+            #     print("averaged",
+            #     "{:20.12f}".format(sum_energy),
+            #     "{:20.12f}".format(active_one_e_energy),
+            #     "{:20.12f}".format(active_two_e_energy),
+            #     "{:20.12f}".format(self.E_core2),
+            #     "{:20.12f}".format(active_one_pe_energy),
+            #     "{:20.12f}".format(ci_dependent_energy),
+            #     "{:20.12f}".format(self.Enuc),
+            #     flush = True
+            #     )
+            # else:
+                # print("DMRG avg  ",
+                # sum_energy, " ",
+                # active_one_e_energy, " ", 
+                # active_two_e_energy, " ",
+                # self.E_core2+self.Enuc+self.d_c, " ",
+                # active_one_pe_energy, " ",
+                # ci_dependent_energy, " ",
+                # )
+
+                # E = self.rdm_exact_energy_DMRG2( 
+                #                     active_twoeint,
+                #                     active_fock_core,
+                #                     d_cmo, 
+                #                     self.E_core2+self.Enuc+self.d_c,
+                #                     self.D_tu_avg, self.D_tuvw_avg, self.Dpe_tu_avg, self.n, self.n_b)
+                    
+
             #print("current gradient_norm and residual", gradient_norm, current_residual)
             #print("current convergence_threshold", convergence_threshold)
             #total_norm = np.sqrt(np.power(gradient_norm,2) + np.power(current_residual,2))
@@ -15458,6 +16028,7 @@ class PFHamiltonianGenerator:
             #   print("microiteration converged! (small total norm)", flush = True)
             #   break
 
+            
             microiteration += 1
 
 
