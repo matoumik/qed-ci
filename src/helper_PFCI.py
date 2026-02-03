@@ -4291,6 +4291,21 @@ class PFHamiltonianGenerator:
                                 if self.save_orbital == True:
                                     # print(new_C)
                                     np.savetxt("orbital.out", self.opt_C)
+
+                                #-Mik quick hack, would be better to have it in input
+                                self.final_fcidump = True
+
+                                if self.final_fcidump == True:
+                                    dmrg.make_FCIDUMP_CASSCF(self.n_act_orb, 
+                                         occupied_J[self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,], 
+                                         occupied_fock_core[ self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied], 
+                                         self.E_core+self.Enuc+self.d_c, 
+                                         self.omega, 
+                                         core_int,
+                                        -np.sqrt(self.omega / 2)*self.d_cmo[self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied] )
+                                    
+                                    print("Final FCIDUMP written.")
+                                
                                     
                                     #####for i in range(self.davidson_roots):
                                     #####    one_rdm = np.zeros((self.n_occupied * self.n_occupied))
