@@ -4296,8 +4296,19 @@ class PFHamiltonianGenerator:
                                 self.final_fcidump = True
 
                                 if self.final_fcidump == True:
+                                    
+                                    core_int  = -2*np.sqrt(self.omega / 2)*np.einsum("jj->", self.d_cmo[: self.n_in_a, : self.n_in_a])
+                                    core_int +=  np.sqrt(self.omega / 2)*self.d_exp
+                                    
+                                    occupied_J_dump = occupied_J.reshape(
+                                        self.n_occupied ,
+                                        self.n_occupied ,
+                                        self.n_occupied ,
+                                        self.n_occupied
+                                    )   
+
                                     dmrg.make_FCIDUMP_CASSCF(self.n_act_orb, 
-                                         occupied_J[self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,], 
+                                         occupied_J_dump[self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,self.n_in_a : self.n_occupied,], 
                                          occupied_fock_core[ self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied], 
                                          self.E_core+self.Enuc+self.d_c, 
                                          self.omega, 
