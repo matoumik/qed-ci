@@ -1355,11 +1355,11 @@ class PFHamiltonianGenerator:
             self.H_diag = np.zeros((H_dim))
 
         # cas - can do full diagonalization of direct
-        elif self.ci_level.lower() == "cas" or self.ci_level.lower() == "dmrg":
+        elif self.ci_level.lower() == "cas" or self.ci_level.lower() == "dmrg" or self.ci_level.lower() == "fcidump":
 
             self.diag = True
                 
-            if self.ci_level.lower() == "dmrg":
+            if self.ci_level.lower() == "dmrg" or self.ci_level.lower() == "fcidump":
                 self.diag = False
 
             if self.test_mode:
