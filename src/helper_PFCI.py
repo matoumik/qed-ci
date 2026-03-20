@@ -4294,10 +4294,38 @@ class PFHamiltonianGenerator:
                                 self.opt_C = np.einsum("pq,qr->pr", self.C, self.U_total)
                                 if self.save_orbital == True:
                                     # print(new_C)
-                                    nself.H_spatial2p.savetxt("orbital.out", self.opt_C)
+                                    self.H_spatial2p.savetxt("orbital.out", self.opt_C)
 
                                 #-Mik quick hack, would be better to have it in input
                                 self.final_fcidump = True
+                                self.final_fcidump_full = True
+
+                                if self.final_fcidump_full == True:
+                                    basis_size = self.nmo
+                                    print("Writing FCI integrals")
+                                    print(self.J.shape)
+                                    print(self.twoeint.shape)
+                                    #unfortunately, need to do the full transformation here again (need virtuals)
+                                    teint = self.twoeint.reshape((basis_size, basis_size, basis_size, basis_size))
+                                    teint = np.einsum("mjkl,mi -> ijkl", teint, self.U_total)
+                                    teint = np.einsum("imkl,mj -> ijkl", teint, self.U_total)
+                                    teint = np.einsum("ijml,mk -> ijkl", teint, self.U_total)
+                                    teint = np.einsum("ijkm,ml -> ijkl", teint, self.U_total)
+
+
+                                    
+                                    dmrg.make_FCIDUMP_CASSCF(  basis_size,
+                                        teint,
+                                        self.H_spatial2,
+                                        self.Enuc+self.d_c,
+                                        self.omega,
+                                        np.sqrt(self.omega / 2)*self.d_exp,
+                                        -np.sqrt(self.omega / 2)*self.d_cmo,
+                                        suffix = "_full"
+                                    )
+                                    
+
+
 
                                 if self.final_fcidump == True:
                                     
