@@ -4,6 +4,24 @@ from os import system
 from struct import unpack
 import os
 
+def make_permutation(orbs,ndocc,ntot):
+    inactive = list()
+    active = list()
+    virtual = list()
+    for i in range(ndocc):
+        if i+1 in orbs:
+            active.append(i)
+        else:
+            inactive.append(i)
+
+    for i in range(ndocc,ntot):
+        if i+1 in orbs:
+            active.append(i)
+        else:
+            virtual.append(i)
+
+    return inactive + active + virtual
+
 def make_FCIDUMP(PFgen):
     print("Generating FCIDUMP FOR DMRG")
     
