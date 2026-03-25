@@ -1994,17 +1994,21 @@ class PFHamiltonianGenerator:
 
                     print(
                         "\nACTIVE PART OF DETERMINANTS THAT HAVE THE MOST IMPORTANT CONTRIBUTIONS",
+                        "     XXXXX",
                         flush=True,
                     )
                     Y = np.zeros(
                         self.n_act_a * (self.n_act_orb - self.n_act_a + 1) * 3,
                         dtype=np.int32,
                     )
+                    print("creating cgraph")
                     c_graph(self.n_act_a, self.n_act_orb, Y)
+                    print("c graph_created")
                     np1 = self.N_p + 1
                     singlet_count = 0
                     triplet_count = 0
                     for i in range(eigenvecs.shape[0]):
+                        print("checking spin")
                         total_spin = self.check_total_spin(eigenvecs[i : (i + 1), :])
                         print(
                             "state",
@@ -4145,7 +4149,7 @@ class PFHamiltonianGenerator:
                                     self.CASSCFvecs = eigenvecs
 
                                     print(
-                                        "\nACTIVE PART OF DETERMINANTS THAT HAVE THE MOST IMPORTANT CONTRIBUTIONS"
+                                        "\nACTIVE PART OF DETERMINANTS THAT HAVE THE MOST IMPORTANT CONTRIBUTIONS", "     YYYYY"
                                     )
                                     Y = np.zeros(
                                         self.n_act_a
@@ -4290,13 +4294,43 @@ class PFHamiltonianGenerator:
                                 self.opt_C = np.einsum("pq,qr->pr", self.C, self.U_total)
                                 if self.save_orbital == True:
                                     # print(new_C)
-                                    np.savetxt("orbital.out", self.opt_C)
+                                    self.H_spatial2p.savetxt("orbital.out", self.opt_C)
 
                                 #-Mik quick hack, would be better to have it in input
                                 self.final_fcidump = True
+                                self.final_fcidump_full = True
+
+                                if self.final_fcidump_full == True:
+                                    basis_size = self.nmo
+                                    print("Writing FCI integrals")
+                                    print(self.J.shape)
+                                    print(self.twoeint.shape)
+                                    #unfortunately, need to do the full transformation here again (need virtuals)
+                                    teint = self.twoeint.reshape((basis_size, basis_size, basis_size, basis_size))
+                                    teint = np.einsum("mjkl,mi -> ijkl", teint, self.U_total)
+                                    teint = np.einsum("imkl,mj -> ijkl", teint, self.U_total)
+                                    teint = np.einsum("ijml,mk -> ijkl", teint, self.U_total)
+                                    teint = np.einsum("ijkm,ml -> ijkl", teint, self.U_total)
+
+
+                                    
+                                    dmrg.make_FCIDUMP_CASSCF(  basis_size,
+                                        teint,
+                                        self.H_spatial2,
+                                        self.Enuc+self.d_c,
+                                        self.omega,
+                                        np.sqrt(self.omega / 2)*self.d_exp,
+                                        -np.sqrt(self.omega / 2)*self.d_cmo,
+                                        suffix = "_full"
+                                    )
+                                    
+
+
 
                                 if self.final_fcidump == True:
                                     
+                                    print("Pure_H1 core:\n", self.H_spatial2[: self.n_in_a, : self.n_in_a])
+                                    print("Pure_H1 act:\n", self.H_spatial2[ self.n_in_a : self.n_occupied, self.n_in_a : self.n_occupied])
                                     core_int  = -2*np.sqrt(self.omega / 2)*np.einsum("jj->", self.d_cmo[: self.n_in_a, : self.n_in_a])
                                     core_int +=  np.sqrt(self.omega / 2)*self.d_exp
                                     
@@ -6688,7 +6722,7 @@ class PFHamiltonianGenerator:
                     )
         else:
             print(
-                "\nACTIVE PART OF DETERMINANTS THAT HAVE THE MOST IMPORTANT CONTRIBUTIONS"
+                "\nACTIVE PART OF DETERMINANTS THAT HAVE THE MOST IMPORTANT CONTRIBUTIONS", "     ZZZZZ"
             )
             Y = np.zeros(
                 self.n_act_a * (self.n_act_orb - self.n_act_a + 1) * 3, dtype=np.int32
@@ -14780,6 +14814,9 @@ class PFHamiltonianGenerator:
                             # print(idx)
                             # w9[:,0] = w9[:,0]/np.linalg.norm(w9[:,0])
                             # w9[:,1] = w9[:,1]/np.linalg.norm(w9[:,1])
+                          
+                            print("np.linalg.norm(w9[:, 0])")
+                            print(np.linalg.norm(w9[:, 0]))
                             v1 = w9[0, 0] / np.linalg.norm(w9[:, 0])
                             v2 = w9[0, 1] / np.linalg.norm(w9[:, 1])
                             u1[:] = w9[1:, 0] / np.linalg.norm(w9[:, 0])

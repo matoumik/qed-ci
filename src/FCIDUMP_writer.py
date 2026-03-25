@@ -4,6 +4,24 @@ from os import system
 from struct import unpack
 import os
 
+def make_permutation(orbs,ndocc,ntot):
+    inactive = list()
+    active = list()
+    virtual = list()
+    for i in range(ndocc):
+        if i+1 in orbs:
+            active.append(i)
+        else:
+            inactive.append(i)
+
+    for i in range(ndocc,ntot):
+        if i+1 in orbs:
+            active.append(i)
+        else:
+            virtual.append(i)
+
+    return inactive + active + virtual
+
 def make_FCIDUMP(PFgen):
     print("Generating FCIDUMP FOR DMRG")
     
@@ -146,10 +164,10 @@ ISYM=1,
 
 
 
-def make_FCIDUMP_CASSCF(num_act, two_el, one_el, nucl_rep, omega, omega_one_el, int_ph_el):
-    eldump = open("FCIDUMP_el", "w")
-    phdump = open("FCIDUMP_ph", "w")
-    intdump = open("FCIDUMP_int", "w")
+def make_FCIDUMP_CASSCF(num_act, two_el, one_el, nucl_rep, omega, omega_one_el, int_ph_el, suffix = ""):
+    eldump = open("FCIDUMP_el"+suffix, "w")
+    phdump = open("FCIDUMP_ph"+suffix, "w")
+    intdump = open("FCIDUMP_int"+suffix, "w")
     
     header = "&FCI NORB=" +str(num_act)+""",NELEC=0,MS2=0
 ORBSYM=1,1,1,1,
