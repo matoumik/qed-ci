@@ -4876,8 +4876,10 @@ class PFHamiltonianGenerator:
 
         
         #Nasty trick to make molden file writer work
-        wfn.occupation_a = lambda: psi4.core.Matrix.from_array(np.array(wfn.nalpha()*[1] + (wfn.nmo() - wfn.nalpha())*[0]).reshape((wfn.nmo(),1)))
-        wfn.occupation_b = lambda: psi4.core.Matrix.from_array(np.array(wfn.nbeta()*[1] + (wfn.nmo() - wfn.nbeta())*[0]).reshape((wfn.nmo(),1)))
+        wfn.occupation_a = lambda: psi4.core.Vector.from_array(np.array(wfn.nalpha()*[1] + (wfn.nmo() - wfn.nalpha())*[0]).reshape((wfn.nmo())))
+        wfn.occupation_b = lambda: psi4.core.Vector.from_array(np.array(wfn.nbeta()*[1] + (wfn.nmo() - wfn.nbeta())*[0]).reshape((wfn.nmo())))
+        #wfn.occupation_a = lambda: psi4.core.Matrix.from_array(np.array(wfn.nalpha()*[1] + (wfn.nmo() - wfn.nalpha())*[0]).reshape((wfn.nmo(),1)))
+        #wfn.occupation_b = lambda: psi4.core.Matrix.from_array(np.array(wfn.nbeta()*[1] + (wfn.nmo() - wfn.nbeta())*[0]).reshape((wfn.nmo(),1)))
         #Write molden file for testing
         psi4.driver.molden(wfn, "orbitals_orig.molden")
 
