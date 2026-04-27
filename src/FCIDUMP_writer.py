@@ -289,3 +289,8 @@ def read_dmrg_results():
             break
 
     return energy, rdm1, rdm2, rdm_pe, rdm_n, rdm_b
+
+### AC TEST STUFF
+
+
+
